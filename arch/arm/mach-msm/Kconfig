@@ -1930,6 +1930,17 @@ config CPU_VOLTAGE_TABLE
 	help
 	  Krait User Votlage Control
 
+config MSM_CPUFREQ_LIMITER
+	tristate "MSM CPU frequency limiter"
+	default n
+	help
+	  This driver limits MSM CPU frequency through sysfs file system.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cpufreq_stats.
+
+	  If in doubt, say N.
+
 config OC_ULTIMATE
 	bool "allow 2.496 GHz max OC option"
 	default n
