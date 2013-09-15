@@ -14,6 +14,9 @@ echo "checking for compiled kernel..."
 if [ -f arch/arm/boot/zImage ]
 then
 
+echo "generating device tree..."
+./dtbTool -o ../final_files/dt.img -s 2048 -p ./scripts/dtc/ ./arch/arm/boot/
+
 ### copy zImage
 cp arch/arm/boot/zImage ../final_files/.
 cp drivers/staging/prima/wlan.ko ../final_files/prima_wlan.ko
