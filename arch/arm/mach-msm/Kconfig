@@ -1949,6 +1949,7 @@ config CPU_OC
 
 config OC_ULTIMATE
 	bool "allow 2.496 GHz max OC option"
+	depends on CPU_OC
 	default n
 	help
 	  Unlock the ultimate Overclock freq speed @ 2.496 GHz
