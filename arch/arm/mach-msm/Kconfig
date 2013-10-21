@@ -1952,6 +1952,12 @@ config CPU_VOLTAGE_TABLE
 	help
 	  Krait User Votlage Control
 
+config INTELLI_PLUG
+	bool "Enable intelli-plug cpu hotplug driver"
+	default n
+	help
+	  Generic Intelli-plug cpu hotplug driver for ARM SOCs
+
 config MSM_CPUFREQ_LIMITER
 	tristate "MSM CPU frequency limiter"
 	default n
