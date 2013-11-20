@@ -1,4 +1,8 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/* arch/arm/boot/dts/msm8974-v2-rhine_honami_row.dts
+ *
+ * Copyright (C) 2013 Sony Mobile Communications AB.
+ *
+ * Author: Raghavendra Alevoor <Raghavendra.Alevoor@sonymobile.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,13 +16,15 @@
 
 /dts-v1/;
 
-/include/ "msm8974-v2-2.dtsi"
-/include/ "msm8974-cdp.dtsi"
+/include/ "msm8974-v2.dtsi"
+/include/ "msm8974-mtp.dtsi"
+/include/ "dsi-panel-honami.dtsi"
+/include/ "msm8974-rhine_honami_cmcc.dtsi"
 
 / {
-	model = "Qualcomm MSM 8974v2 CDP";
-	compatible = "qcom,msm8974-cdp", "qcom,msm8974", "qcom,cdp";
-	qcom,msm-id = <126 1 0x20002>,
-		      <185 1 0x20002>,
-		      <186 1 0x20002>;
+	model = "SoMC Honami CMCC";
+	compatible = "somc,honami-cmcc", "qcom,msm8974";
+	qcom,msm-id = <126 8 0x20000>,
+		      <185 8 0x20000>,
+		      <186 8 0x20000>;
 };
