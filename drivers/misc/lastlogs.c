@@ -14,6 +14,7 @@
 #include <linux/uaccess.h>
 #include <linux/rdtags.h>
 #include <linux/io.h>
+#include <linux/reboot.h>
 #include "../../arch/arm/mach-msm/smd_private.h"
 
 static struct device *dev;
@@ -149,12 +150,28 @@ static const struct file_operations kmsg_fops = {
 	.read = kmsg_lastlog_read,
 };
 
+static int get_boot_reason(char *buf, size_t size)
+{
+	char boot_reason[21] = {0};
+	size_t boot_reason_size;
+	char *bootreason_param = strnstr(saved_command_line, "bootreason=",
+			10000);
+
+	if (bootreason_param)
+		sscanf(bootreason_param, "bootreason=%20s", boot_reason);
+	boot_reason_size = 1 + snprintf(buf, size,
+			"\n\nBoot info:\nLast boot reason: %s\n\n",
+			boot_reason);
+	return min(boot_reason_size, size);
+}
+
 static int export_kmsg_logs(void)
 {
 	struct proc_dir_entry *entry;
 	struct last_logs *buffer = (struct last_logs *)kmsg_base;
+	const int boot_reason_max_size = 50;
 
-	kmsg_buf = kzalloc(kmsg_size, GFP_KERNEL);
+	kmsg_buf = kzalloc(kmsg_size + boot_reason_max_size, GFP_KERNEL);
 	if (kmsg_buf == NULL) {
 		dev_err(dev,
 			"failed allocating kmsg buffer\n");
@@ -163,6 +180,8 @@ static int export_kmsg_logs(void)
 
 	kmsg_size = min(buffer->size, kmsg_size);
 	memcpy(kmsg_buf, buffer->data, kmsg_size);
+	kmsg_size += get_boot_reason(kmsg_buf + kmsg_size - 1,
+			boot_reason_max_size + 1);
 	entry = create_proc_entry("last_kmsg",
 			S_IFREG | S_IRUGO, NULL);
 	if (!entry) {
@@ -307,6 +326,10 @@ static struct notifier_block lastlogs_panic_block = {
 	.notifier_call = dump_kernel_logs,
 };
 
+static struct notifier_block lastlogs_reboot_notifier = {
+	.notifier_call = dump_kernel_logs,
+};
+
 static int lastlogs_driver_probe(struct platform_device *pdev)
 {
 	struct resource *kmsg_res, *amss_res;
@@ -372,6 +395,7 @@ amss_log:
 	iounmap(amss_base);
 	atomic_notifier_chain_register(&panic_notifier_list,
 			&lastlogs_panic_block);
+	register_reboot_notifier(&lastlogs_reboot_notifier);
 	return ret;
 }
 

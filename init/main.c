@@ -97,7 +97,7 @@ extern void tc_init(void);
 
 /*
  * Debug helper: via this flag we know that we are in 'early bootup code'
- * where only the boot processor is running with IRQ disabled.  This means
+ * where only the boot processor is running with IRQ disabled.	This means
  * two things - IRQ must not be enabled before the flag is cleared and some
  * operations which are not allowed with IRQ disabled are allowed while the
  * flag is set.
@@ -386,10 +386,88 @@ static noinline void __init_refok rest_init(void)
 	cpu_idle();
 }
 
+static int parse_sw(long startup, long warmboot)
+{
+	/* check for watchdogs, any will do */
+	if ((0x7060002 & startup) != 0)
+		return 3; /* watchdog */
+
+	switch (warmboot) {
+	case 0:
+		return 4; /* coldboot */
+	case 0xC0DEDEAD:
+        case 0x000052D1:
+        case 0x000052DE:
+        case 0x000052DC:
+	case 0x46726365: /* force crash. Not really a crash */
+		return 2; /* kernel crash */
+	case 0x77665501:
+	case 0x776655AA:
+		return 1; /* reboot */
+		break;
+	default:
+		printk(KERN_ERR "Unknown warmboot:0x%lx", warmboot);
+	}
+	printk(KERN_ERR "Unknown warmboot:0x%lx startup: 0x%lx",
+	       warmboot, startup);
+	return 1;
+}
+
 /* Check for early params. */
 static int __init do_early_param(char *param, char *val)
 {
 	const struct obs_kernel_param *p;
+	static long saved_startup;
+	static long saved_warmboot = -1;
+	static int done;
+
+	if (strstr(param, "warmboot") && val)
+		saved_warmboot = simple_strtol(val, NULL, 16);
+
+	if (strstr(param, "startup") && val)
+		saved_startup = simple_strtol(val, NULL, 16);
+
+#if 0
+	printk(KERN_WARNING "Startup:0x%lx warmboot:0x%lx %p %p\n\n",
+	       saved_startup,
+	       saved_warmboot,
+	       strstr(param, "startup"),
+	       strstr(param, "warmboot"));
+#endif
+	if ((saved_warmboot != -1) && saved_startup && !done) {
+		char bootreason[100];
+		switch (parse_sw(saved_startup, saved_warmboot)) {
+		case 1:
+			snprintf(bootreason, sizeof(bootreason),
+				 " bootreason=reboot");
+			break;
+		case 2:
+			snprintf(bootreason, sizeof(bootreason),
+				 " bootreason=kernel_panic");
+
+			break;
+		case 3:
+			snprintf(bootreason, sizeof(bootreason),
+				 " bootreason=watchdog");
+
+			break;
+		case 4:
+			snprintf(bootreason, sizeof(bootreason),
+				 " bootreason=coldboot");
+
+			break;
+		default:
+			snprintf(bootreason, sizeof(bootreason),
+				 " bootreason=unknown");
+
+			break;
+		}
+#if 0
+		printk(KERN_INFO "Adding params %s\n", bootreason);
+#endif
+		strlcat(boot_command_line, bootreason, COMMAND_LINE_SIZE);
+		done = 1;
+	}
 
 	for (p = __setup_start; p < __setup_end; p++) {
 		if ((p->early && parameq(param, p->str)) ||
@@ -413,16 +491,18 @@ void __init parse_early_options(char *cmdline)
 /* Arch code calls this early on, or if not, just before other parsing. */
 void __init parse_early_param(void)
 {
-	static __initdata int done = 0;
+	static __initdata int cd = 3;
 	static __initdata char tmp_cmdline[COMMAND_LINE_SIZE];
-
-	if (done)
+#if 0
+	printk(KERN_WARNING "parse early doing %d\n", cd);
+#endif 
+	if (cd <= 0)
 		return;
 
 	/* All fall through to do_early_param. */
 	strlcpy(tmp_cmdline, boot_command_line, COMMAND_LINE_SIZE);
 	parse_early_options(tmp_cmdline);
-	done = 1;
+	cd--;
 }
 
 /*

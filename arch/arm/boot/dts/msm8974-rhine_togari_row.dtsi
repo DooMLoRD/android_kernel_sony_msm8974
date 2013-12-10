@@ -214,15 +214,8 @@
 	};
 
 	qcom,cci@fda0C000 {
-		qcom,cci-master0 {
-			qcom,hw-thigh = <22>;
-			qcom,hw-tlow = <33>;
-		};
-
-		qcom,cci-master1 {
-			qcom,hw-thigh = <22>;
-			qcom,hw-tlow = <33>;
-		};
+		qcom,hw-thigh = <22>;
+		qcom,hw-tlow = <33>;
 
 		qcom,camera@20 {
 			compatible = "qcom,sony_camera_0";
@@ -680,7 +673,7 @@
 	qcom,ibatsafe-ma = <2000>;
 	qcom,maxinput-dc-ma = <1800>;
 	qcom,maxinput-usb-ma = <1500>;
-	qcom,cool-bat-mv = <4350>;
+	qcom,cool-bat-mv = <4200>;
 	qcom,ibatmax-warm-ma = <900>;
 	qcom,warm-bat-mv = <4200>;
 	qcom,ibatmax-cool-ma = <900>;
@@ -1205,7 +1198,6 @@
 	regulator-min-microvolt = <1200000>;
 	regulator-max-microvolt = <1200000>;
 	qcom,init-voltage = <1200000>;
-	qcom,init-ldo-mode = <1>;
 	status = "ok";
 };
 
@@ -1265,7 +1257,6 @@
 	regulator-min-microvolt = <2700000>;
 	regulator-max-microvolt = <2700000>;
 	qcom,init-voltage = <2700000>;
-	qcom,init-ldo-mode = <1>;
 	status = "ok";
 };
 
@@ -1308,7 +1299,6 @@
 	regulator-min-microvolt = <2600000>;
 	regulator-max-microvolt = <2600000>;
 	qcom,init-voltage = <2600000>;
-	qcom,init-ldo-mode = <1>;
 	status = "ok";
 };
 

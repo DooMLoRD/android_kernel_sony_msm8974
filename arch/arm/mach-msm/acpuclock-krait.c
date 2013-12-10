@@ -55,12 +55,8 @@ static unsigned long acpuclk_krait_get_rate(int cpu)
 	return drv.scalable[cpu].cur_speed->khz;
 }
 
-struct set_clk_src_args {
-	struct scalable *sc;
-	u32 src_sel;
-};
-
-static void __set_pri_clk_src(struct scalable *sc, u32 pri_src_sel)
+/* Select a source on the primary MUX. */
+static void set_pri_clk_src(struct scalable *sc, u32 pri_src_sel)
 {
 	u32 regval;
 
@@ -71,28 +67,6 @@ static void __set_pri_clk_src(struct scalable *sc, u32 pri_src_sel)
 	/* Wait for switch to complete. */
 	mb();
 	udelay(1);
-}
-
-static void __set_cpu_pri_clk_src(void *data)
-{
-	struct set_clk_src_args *args = data;
-	__set_pri_clk_src(args->sc, args->src_sel);
-}
-
-/* Select a source on the primary MUX. */
-static void set_pri_clk_src(struct scalable *sc, u32 pri_src_sel,
-			    enum setrate_reason reason)
-{
-	if (reason == SETRATE_CPUFREQ && sc != &drv.scalable[L2]) {
-		int cpu = sc - drv.scalable;
-		struct set_clk_src_args args = {
-			.sc = sc,
-			.src_sel = pri_src_sel,
-		};
-		smp_call_function_single(cpu, __set_cpu_pri_clk_src, &args, 1);
-	} else {
-		__set_pri_clk_src(sc, pri_src_sel);
-	}
 }
 
 /* Select a source on the secondary MUX. */
@@ -232,7 +206,7 @@ static void set_bus_bw(unsigned int bw)
 
 /* Set the CPU or L2 clock speed. */
 static void set_speed(struct scalable *sc, const struct core_speed *tgt_s,
-	bool skip_regulators, enum setrate_reason reason)
+	bool skip_regulators)
 {
 	const struct core_speed *strt_s = sc->cur_speed;
 
@@ -244,7 +218,7 @@ static void set_speed(struct scalable *sc, const struct core_speed *tgt_s,
 		 * Move to an always-on source running at a frequency
 		 * that does not require an elevated CPU voltage.
 		 */
-		set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC, reason);
+		set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC);
 
 		/* Re-program HFPLL. */
 		hfpll_disable(sc, true);
@@ -252,14 +226,14 @@ static void set_speed(struct scalable *sc, const struct core_speed *tgt_s,
 		hfpll_enable(sc, true);
 
 		/* Move to HFPLL. */
-		set_pri_clk_src(sc, tgt_s->pri_src_sel, reason);
+		set_pri_clk_src(sc, tgt_s->pri_src_sel);
 	} else if (strt_s->src == HFPLL && tgt_s->src != HFPLL) {
-		set_pri_clk_src(sc, tgt_s->pri_src_sel, reason);
+		set_pri_clk_src(sc, tgt_s->pri_src_sel);
 		hfpll_disable(sc, skip_regulators);
 	} else if (strt_s->src != HFPLL && tgt_s->src == HFPLL) {
 		hfpll_set_rate(sc, tgt_s);
 		hfpll_enable(sc, skip_regulators);
-		set_pri_clk_src(sc, tgt_s->pri_src_sel, reason);
+		set_pri_clk_src(sc, tgt_s->pri_src_sel);
 	}
 
 	sc->cur_speed = tgt_s;
@@ -567,7 +541,7 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	skip_regulators = (reason == SETRATE_PC);
 
 	/* Set the new CPU speed. */
-	set_speed(&drv.scalable[cpu], tgt_acpu_s, skip_regulators, reason);
+	set_speed(&drv.scalable[cpu], tgt_acpu_s, skip_regulators);
 
 	/*
 	 * Update the L2 vote and apply the rate change. A spinlock is
@@ -578,8 +552,8 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	 */
 	spin_lock(&l2_lock);
 	tgt_l2_l = compute_l2_level(&drv.scalable[cpu], tgt->l2_level);
-	set_speed(&drv.scalable[L2], &drv.l2_freq_tbl[tgt_l2_l].speed,
-		  true, reason);
+	set_speed(&drv.scalable[L2],
+			&drv.l2_freq_tbl[tgt_l2_l].speed, true);
 	spin_unlock(&l2_lock);
 
 	/* Nothing else to do for power collapse or SWFI. */
@@ -805,7 +779,7 @@ static int __cpuinit init_clock_sources(struct scalable *sc,
 
 	/* Switch away from the HFPLL while it's re-initialized. */
 	set_sec_clk_src(sc, sc->sec_clk_sel);
-	set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC, SETRATE_INIT);
+	set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC);
 	hfpll_init(sc, tgt_s);
 
 	/* Set PRI_SRC_SEL_HFPLL_DIV2 divider to div-2. */
@@ -816,7 +790,7 @@ static int __cpuinit init_clock_sources(struct scalable *sc,
 	/* Enable and switch to the target clock source. */
 	if (tgt_s->src == HFPLL)
 		hfpll_enable(sc, false);
-	set_pri_clk_src(sc, tgt_s->pri_src_sel, SETRATE_INIT);
+	set_pri_clk_src(sc, tgt_s->pri_src_sel);
 	sc->cur_speed = tgt_s;
 
 	return 0;

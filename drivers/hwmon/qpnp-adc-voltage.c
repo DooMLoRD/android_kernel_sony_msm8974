@@ -108,7 +108,7 @@
 #define QPNP_VADC_CONV_TIME_MIN					2000
 #define QPNP_VADC_CONV_TIME_MAX					2100
 #define QPNP_ADC_COMPLETION_TIMEOUT				HZ
-#define QPNP_VADC_ERR_COUNT					1000
+#define QPNP_VADC_ERR_COUNT					20
 
 struct qpnp_vadc_drv {
 	struct device			*dev;

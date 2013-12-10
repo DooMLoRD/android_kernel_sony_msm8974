@@ -160,6 +160,7 @@ struct mhl_tx_ctrl {
 	uint8_t tmds_en_state;
 	bool tmds_ctrl_en;
 	bool screen_mode;
+	bool received_content_off;
 	void *hdmi_mhl_ops;
 	struct work_struct mhl_msc_send_work;
 	struct list_head list_cmd;

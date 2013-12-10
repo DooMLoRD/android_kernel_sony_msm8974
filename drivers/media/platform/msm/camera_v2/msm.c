@@ -645,7 +645,7 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	int session_id, stream_id;
 	unsigned long flags = 0;
 #if defined(CONFIG_SONY_CAM_V4L2)
-	uint32_t retry_count = 0;
+	uint8_t retry_count = 0;
 #endif
 
 	session_id = event_data->session_id;
@@ -683,7 +683,7 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 
 	/* should wait on session based condition */
 #if defined(CONFIG_SONY_CAM_V4L2)
-	retry_count = 5000;
+	retry_count = 20;
 	do {
 		rc = wait_event_interruptible_timeout(cmd_ack->wait,
 			!list_empty_careful(&cmd_ack->command_q.list),
@@ -695,11 +695,6 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 				__func__, retry_count);
 		msleep(20);
 	} while (retry_count > 0);
-
-	if (rc == -ERESTARTSYS) {
-		pr_err("%s: rc = %d\n", __func__, rc);
-		rc = -EINVAL;
-	}
 #else
 	rc = wait_event_interruptible_timeout(cmd_ack->wait,
 		!list_empty_careful(&cmd_ack->command_q.list),

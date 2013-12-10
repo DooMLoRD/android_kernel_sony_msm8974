@@ -52,6 +52,9 @@
 #define MSC_START_BIT_WRITE_REG        (0x01 << 3)
 #define MSC_START_BIT_WRITE_BURST        (0x01 << 4)
 
+#define MHL_MIN_VOLTAGE_MV 4600
+#define MHL_DEFAULT_MIN_VOLTAGE_MV 4300
+
 static int mouse_mode;
 static int screen_status;
 static int mouse_move_distance_dx;
@@ -370,6 +373,20 @@ static int mhl_sii_reset_pin(struct mhl_tx_ctrl *mhl_ctrl, int on)
 	return 0;
 }
 
+static int mhl_set_vinmin(int mv)
+{
+	int rc = 0;
+
+	pr_debug("%s: set vinmin =%dmV\n", __func__, mv);
+	rc = power_supply_chg_vinmin_set(mv);
+
+	if (rc)
+		pr_err("%s: fail to set vinmin=%dmV\n", __func__, mv);
+	else
+		pr_debug("%s: finish vinmin setting %dmV\n", __func__, mv);
+
+	return rc;
+}
 
 static int mhl_sii_wait_for_rgnd(struct mhl_tx_ctrl *mhl_ctrl)
 {
@@ -422,9 +439,11 @@ static int mhl_sii_device_discovery(void *data, int id,
 		/* TX PR-guide requires a 100 ms wait here */
 		msleep(100);
 		mhl_init_reg_settings(mhl_ctrl, true);
+		mhl_set_vinmin(MHL_MIN_VOLTAGE_MV);
 		rc = mhl_sii_wait_for_rgnd(mhl_ctrl);
 	} else {
 		if (mhl_ctrl->cur_state == POWER_STATE_D3) {
+			mhl_set_vinmin(MHL_MIN_VOLTAGE_MV);
 			rc = mhl_sii_wait_for_rgnd(mhl_ctrl);
 		} else {
 			/* in MHL mode */
@@ -433,6 +452,8 @@ static int mhl_sii_device_discovery(void *data, int id,
 		}
 	}
 	pr_debug("%s: ret result: %s\n", __func__, rc ? "usb" : " mhl");
+	if (rc)
+		mhl_set_vinmin(MHL_DEFAULT_MIN_VOLTAGE_MV);
 	return rc;
 }
 
@@ -1016,6 +1037,7 @@ static void mhl_discovery_timeout_work(struct work_struct *work)
 		power_supply_changed(&mhl_ctrl->mhl_psy);
 		if (mhl_ctrl->notify_usb_online) {
 			mhl_ctrl->notify_usb_online_plugged = false;
+			mhl_set_vinmin(MHL_DEFAULT_MIN_VOLTAGE_MV);
 			mhl_ctrl->notify_usb_online(0);
 		}
 		del_timer(&mhl_ctrl->discovery_timer);

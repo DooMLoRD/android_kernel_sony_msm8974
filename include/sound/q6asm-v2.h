@@ -76,8 +76,7 @@
 #define SOFT_PAUSE_ENABLE	1
 #define SOFT_PAUSE_DISABLE	0
 
-#define SESSION_MAX		0x08
-#define ASM_CONTROL_SESSION	0x0F
+#define SESSION_MAX	0x08
 
 /* payload structure bytes */
 #define READDONE_IDX_STATUS 0
@@ -221,8 +220,6 @@ int q6asm_memory_map(struct audio_client *ac, uint32_t buf_add,
 
 int q6asm_memory_unmap(struct audio_client *ac, uint32_t buf_add,
 							int dir);
-
-int q6asm_unmap_cal_blocks(void);
 
 int q6asm_run(struct audio_client *ac, uint32_t flags,
 		uint32_t msw_ts, uint32_t lsw_ts);

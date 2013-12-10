@@ -305,6 +305,7 @@ int mhl_msc_command_done(struct mhl_tx_ctrl *mhl_ctrl,
 					mhl_drive_hpd(mhl_ctrl, HPD_UP);
 					mhl_ctrl->tmds_ctrl_en = true;
 				}
+				mhl_ctrl->received_content_off = false;
 			} else {
 				/* Disable TMDS output */
 				mhl_tmds_ctrl(mhl_ctrl, TMDS_DISABLE);
@@ -335,6 +336,7 @@ int mhl_msc_command_done(struct mhl_tx_ctrl *mhl_ctrl,
 				mhl_tmds_ctrl(mhl_ctrl, TMDS_ENABLE);
 				mhl_drive_hpd(mhl_ctrl, HPD_UP);
 				mhl_ctrl->tmds_ctrl_en = true;
+				mhl_ctrl->received_content_off = false;
 			}
 			break;
 		}
@@ -401,6 +403,9 @@ int mhl_msc_send_msc_msg(struct mhl_tx_ctrl *mhl_ctrl,
 
 void mhl_screen_notify(struct mhl_tx_ctrl *mhl_ctrl, int screen_mode)
 {
+	/* Nothing to do */
+	return;
+#if 0
 	if (!mhl_ctrl) {
 		pr_err("%s: invalid input\n", __func__);
 		return;
@@ -428,6 +433,7 @@ void mhl_screen_notify(struct mhl_tx_ctrl *mhl_ctrl, int screen_mode)
 		/* NACK any RAP call until chagne to screen on */
 		mhl_ctrl->screen_mode = false;
 	}
+#endif
 }
 
 /*
@@ -662,27 +668,41 @@ int mhl_rcp_recv(struct mhl_tx_ctrl *mhl_ctrl, u8 key_code)
 	return 0;
 }
 
+static void mhl_send_power_key_event(struct mhl_tx_ctrl *mhl_ctrl)
+{
+	input_report_key(mhl_ctrl->input, KEY_VENDOR, 1);
+	input_sync(mhl_ctrl->input);
+	input_report_key(mhl_ctrl->input, KEY_VENDOR, 0);
+	input_sync(mhl_ctrl->input);
+}
+
 static int mhl_rap_action(struct mhl_tx_ctrl *mhl_ctrl, u8 action_code)
 {
 	switch (action_code) {
 	case MHL_RAP_CONTENT_ON:
-		if (!mhl_ctrl->tmds_en_state)
+		if (!mhl_ctrl->tmds_en_state) {
+			/*
+			 * not only enabling tmds
+			 * send power button press to wake up the device
+			 */
+			if (mhl_ctrl->received_content_off) {
+				mhl_ctrl->received_content_off = false;
+				mhl_send_power_key_event(mhl_ctrl);
+			}
 			mhl_tmds_ctrl(mhl_ctrl, TMDS_ENABLE);
+			mhl_drive_hpd(mhl_ctrl, HPD_UP);
+		}
 		break;
 	case MHL_RAP_CONTENT_OFF:
 		if (mhl_ctrl->tmds_en_state && mhl_ctrl->screen_mode) {
 			mhl_drive_hpd(mhl_ctrl, HPD_DOWN);
 			mhl_tmds_ctrl(mhl_ctrl, TMDS_DISABLE);
-			/* NACK any RAP call until change to screen on */
-			mhl_ctrl->screen_mode = false;
 			/*
 			 * instead of only disabling tmds
 			 * send power button press - CONTENT_OFF
 			 */
-			input_report_key(mhl_ctrl->input, KEY_VENDOR, 1);
-			input_sync(mhl_ctrl->input);
-			input_report_key(mhl_ctrl->input, KEY_VENDOR, 0);
-			input_sync(mhl_ctrl->input);
+			mhl_send_power_key_event(mhl_ctrl);
+			mhl_ctrl->received_content_off = true;
 		}
 		break;
 	default:
@@ -1031,5 +1051,7 @@ int mhl_msc_init(struct mhl_tx_ctrl *mhl_ctrl)
 	scratchpad_workqueue = create_singlethread_workqueue("mhl_scratchpad");
 	INIT_WORK(&mhl_ctrl->scratchpad_work, mhl_scratchpad_send_work);
 
+	mhl_ctrl->screen_mode = true;
+	mhl_ctrl->received_content_off = false;
 	return 0;
 }

@@ -309,6 +309,7 @@ struct qpnp_somc_params {
 	struct aicl_current	idc;
 	int			usb_current_max;
 	int			charging_disabled_for_shutdown;
+	int			charging_disabled_for_therm;
 	struct switch_dev	swdev;
 	enum dock_state_event	dock_event;
 	struct wake_lock	dock_lock;
@@ -319,7 +320,6 @@ struct qpnp_somc_params {
 	bool			warm_disable_charging;
 	bool			workaround_batfet_close;
 	int			disconnect_count;
-	bool			enabling_regulator_boost;
 };
 
 /**
@@ -919,6 +919,7 @@ qpnp_arb_stop_work(struct work_struct *work)
 
 	if (chip->chg_done ||
 	    chip->somc_params.charging_disabled_for_shutdown ||
+	    chip->somc_params.charging_disabled_for_therm ||
 	    chip->somc_params.workaround_batfet_close) {
 		pr_debug("Cancel stopping RB workaround\n");
 		return;
@@ -1759,6 +1760,34 @@ qpnp_chg_vinmin_set(struct qpnp_chg_chip *chip, int voltage)
 			QPNP_CHG_VINMIN_MASK, temp, 1);
 }
 
+int power_supply_chg_vinmin_set(int mv)
+{
+	struct power_supply *psy;
+	struct qpnp_chg_chip *chip;
+
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		pr_debug("Called before probe\n");
+		return 0;
+	}
+
+	chip = container_of(psy, struct qpnp_chg_chip, batt_psy);
+	if (!chip) {
+		pr_debug("chip is not initialized\n");
+		return 0;
+	}
+
+	if (chip->min_voltage_mv == mv) {
+		pr_debug("No change min voltage=%dmV\n", mv);
+		return 0;
+	}
+
+	pr_debug("set voltage=%dmV from ext\n", mv);
+	chip->min_voltage_mv = mv;
+	return qpnp_chg_vinmin_set(chip, mv);
+}
+EXPORT_SYMBOL_GPL(power_supply_chg_vinmin_set);
+
 #define QPNP_CHG_IBATSAFE_MIN_MA		200
 #define QPNP_CHG_IBATSAFE_MAX_MA		3000
 #define QPNP_CHG_I_STEP_MA		50
@@ -2513,6 +2542,7 @@ qpnp_chg_check_unpluged_charger(struct qpnp_chg_chip *chip)
 	if (!rc && !(ibat_sts & BMS_SIGN_BIT) &&
 		(chg_gone_sts & CHG_GONE_IRQ) &&
 		!chip->somc_params.charging_disabled_for_shutdown &&
+		!chip->somc_params.charging_disabled_for_therm &&
 		!chip->somc_params.workaround_batfet_close) {
 		pr_info("Assume reverse boost issue happens\n");
 		chip->somc_params.kick_rb_workaround = true;
@@ -2680,10 +2710,6 @@ static void dock_worker(struct work_struct *work)
 	struct qpnp_chg_chip *chip = container_of(work,
 				struct qpnp_chg_chip,
 				somc_params.dock_work);
-
-	if (chip->somc_params.enabling_regulator_boost)
-		return;
-
 	if (chip->dc_present)
 		create_dock_event(chip, CHG_DOCK_DESK);
 	else
@@ -2731,8 +2757,10 @@ qpnp_batt_system_temp_level_set(struct qpnp_chg_chip *chip, int lvl_sel)
 		chip->therm_lvl_sel = lvl_sel;
 		if (lvl_sel == (chip->thermal_levels - 1)) {
 			/* disable charging if highest value selected */
+			chip->somc_params.charging_disabled_for_therm = true;
 			qpnp_chg_buck_control(chip, 0);
 		} else {
+			chip->somc_params.charging_disabled_for_therm = false;
 			qpnp_chg_buck_control(chip, 1);
 			qpnp_chg_set_appropriate_battery_current(chip);
 		}
@@ -2771,8 +2799,6 @@ qpnp_chg_regulator_boost_enable(struct regulator_dev *rdev)
 {
 	struct qpnp_chg_chip *chip = rdev_get_drvdata(rdev);
 	int rc;
-
-	chip->somc_params.enabling_regulator_boost = true;
 
 	if (qpnp_chg_is_usb_chg_plugged_in(chip) &&
 			(chip->flags & BOOST_FLASH_WA)) {
@@ -2893,7 +2919,6 @@ qpnp_chg_regulator_boost_disable(struct regulator_dev *rdev)
 		qpnp_chg_usb_suspend_enable(chip, 0);
 	}
 
-	chip->somc_params.enabling_regulator_boost = false;
 	return rc;
 }
 
@@ -3005,6 +3030,7 @@ qpnp_eoc_work(struct work_struct *work)
 
 	if (!chip->somc_params.kick_rb_workaround &&
 	    !chip->somc_params.charging_disabled_for_shutdown &&
+	    !chip->somc_params.charging_disabled_for_therm &&
 	    !chip->somc_params.workaround_batfet_close)
 		qpnp_chg_enable_charge(chip, !chip->charging_disabled);
 
@@ -3091,7 +3117,9 @@ qpnp_eoc_work(struct work_struct *work)
 				chip->somc_params.usb_current_max <=
 				USB_MAX_CURRENT_MIN) {
 				pr_info("max charge current isn't notified\n");
-			} else if (!chip->somc_params.workaround_batfet_close) {
+			} else if (!chip->somc_params.workaround_batfet_close &&
+				!chip->somc_params.charging_disabled_for_therm
+				) {
 				pr_info("Assumed End of Charging\n");
 				qpnp_chg_disable_charge_with_batfet(chip,
 								BATFET_OPEN);

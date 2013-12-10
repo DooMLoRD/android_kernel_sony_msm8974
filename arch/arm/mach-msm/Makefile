@@ -316,14 +316,30 @@ obj-$(CONFIG_MACH_SAPPHIRE) += board-sapphire-keypad.o board-sapphire-panel.o
 obj-$(CONFIG_MACH_SAPPHIRE) += board-sapphire-mmc.o board-sapphire-wifi.o
 obj-$(CONFIG_MACH_SAPPHIRE) += board-sapphire-rfkill.o msm_vibrator.o
 
-ifdef CONFIG_MACH_SONY_TOGARI_ROW
+ifdef CONFIG_MACH_SONY_RHINE_CDB
+	obj-$(CONFIG_MACH_SONY_RHINE_CDB) += board-sony_rhine_cdb-gpiomux.o board-sony_rhine-usb.o bms-batterydata-oem.o
+else ifdef CONFIG_MACH_SONY_TOGARI_ROW
 	obj-$(CONFIG_MACH_SONY_TOGARI_ROW) += board-sony_togari_row-gpiomux.o board-sony_togari-usb.o bms-batterydata-burton.o
+else ifdef CONFIG_MACH_SONY_TOGARI_WINDY
+	obj-$(CONFIG_MACH_SONY_TOGARI_WINDY) += board-sony_togari_windy-gpiomux.o board-sony_rhine-usb.o bms-batterydata-burton.o
+else ifdef CONFIG_MACH_SONY_TOGARI_BRAZIL
+	obj-$(CONFIG_MACH_SONY_TOGARI_BRAZIL) += board-sony_togari_brazil-gpiomux.o board-sony_rhine-usb.o bms-batterydata-burton.o
+else ifdef CONFIG_MACH_SONY_TOGARI_KDDI
+	obj-$(CONFIG_MACH_SONY_TOGARI_KDDI) += board-sony_togari_kddi-gpiomux.o board-sony_rhine-usb.o bms-batterydata-burton.o
 else ifdef CONFIG_MACH_SONY_HONAMI_ROW
 	obj-$(CONFIG_MACH_SONY_HONAMI_ROW) += board-sony_honami_row-gpiomux.o board-sony_rhine-usb.o bms-batterydata-salomon.o
+else ifdef CONFIG_MACH_SONY_HONAMI_CMCC
+	obj-$(CONFIG_MACH_SONY_HONAMI_CMCC) += board-sony_honami_cmcc-gpiomux.o board-sony_rhine-usb.o bms-batterydata-salomon.o
 else ifdef CONFIG_MACH_SONY_HONAMI_DCM
 	obj-$(CONFIG_MACH_SONY_HONAMI_DCM) += board-sony_honami_dcm-gpiomux.o board-sony_rhine-usb.o bms-batterydata-salomon.o
 else ifdef CONFIG_MACH_SONY_HONAMI_KDDI
 	obj-$(CONFIG_MACH_SONY_HONAMI_KDDI) += board-sony_honami_kddi-gpiomux.o board-sony_rhine-usb.o bms-batterydata-salomon.o
+else ifdef CONFIG_MACH_SONY_HONAMI_BRAZIL
+	obj-$(CONFIG_MACH_SONY_HONAMI_BRAZIL) += board-sony_honami_brazil-gpiomux.o board-sony_rhine-usb.o bms-batterydata-salomon.o
+else ifdef CONFIG_MACH_SONY_AMAMI_ROW
+	obj-$(CONFIG_MACH_SONY_AMAMI_ROW) += board-sony_amami_row-gpiomux.o board-sony_rhine-usb.o bms-batterydata-ray.o
+else ifdef CONFIG_MACH_SONY_AMAMI_DCM
+	obj-$(CONFIG_MACH_SONY_AMAMI_DCM) += board-sony_amami_dcm-gpiomux.o board-sony_rhine-usb.o bms-batterydata-ray.o
 else
 	obj-$(CONFIG_ARCH_MSM8974) += board-8974-gpiomux.o board-sony_rhine-usb.o bms-batterydata-oem.o
 endif

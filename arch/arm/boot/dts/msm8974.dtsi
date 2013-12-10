@@ -1508,7 +1508,7 @@
 
 		qcom,vdd-apps-rstr{
 			qcom,vdd-rstr-reg = "vdd_apps";
-			qcom,levels = <1881600 1958400 2265600>;
+			qcom,levels = <2150400 1958400 2150400>;
 			qcom,freq-req;
 		};
 	};
