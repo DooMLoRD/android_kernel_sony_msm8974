@@ -20,6 +20,7 @@
 			reg = <0x1700 0x100>;
 			regulator-min-microvolt = <900000>;
 			regulator-max-microvolt = <1350000>;
+			qcom,mode = "auto";
 		};
 	};
 };
@@ -30,19 +31,27 @@
 	apc_vreg_corner: regulator@f9018000 {
 		status = "okay";
 		compatible = "qcom,cpr-regulator";
-		reg = <0xf9018000 0x1000>, <0xf9011064 4>, <0xfc4b80b0 8>,
-			<0xfc4bc450 16>;
-		reg-names = "rbcpr", "rbcpr_clk", "pvs_efuse", "cpr_efuse";
+		reg = <0xf9018000 0x1000>, <0xf9011064 4>, <0xfc4b8000 0x1000>;
+		reg-names = "rbcpr", "rbcpr_clk", "efuse_addr";
 		interrupts = <0 15 0>;
 		regulator-name = "apc_corner";
 		regulator-min-microvolt = <1>;
 		regulator-max-microvolt = <3>;
-		qcom,num-efuse-bits = <5>;
-		qcom,pvs-bin-process = <0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 2
-					2 2 2 2 3 3 3 3 3 3 3 3 0 0 0 0>;
+
+		qcom,pvs-fuse-redun-sel = <53 25 3 2>;
+		qcom,pvs-fuse = <23 6 5>;
+		qcom,pvs-fuse-redun = <61 47 5>;
+
+		qcom,pvs-init-voltage = <1275000 1275000 1275000 1275000 1275000
+					1275000 1275000 1275000 1275000 1275000
+					1275000 1275000 1275000 1275000 1275000
+					1275000 1275000 1275000 1275000 1275000
+					1275000 1275000 1275000 1275000 1275000
+					1275000 1275000 1275000 1275000 1275000
+					1275000 1275000>;
 		qcom,pvs-corner-ceiling-slow = <1150000 1150000 1275000>;
-		qcom,pvs-corner-ceiling-nom  =  <975000 1075000 1200000>;
-		qcom,pvs-corner-ceiling-fast =  <900000 1000000 1140000>;
+		qcom,pvs-corner-ceiling-nom  = <1075000 1075000 1200000>;
+		qcom,pvs-corner-ceiling-fast = <1050000 1050000 1140000>;
 		vdd-apc-supply = <&pm8110_s2>;
 
 		vdd-mx-supply = <&pm8110_l3_ao>;
@@ -51,17 +60,32 @@
 
 		qcom,cpr-ref-clk = <19200>;
 		qcom,cpr-timer-delay = <5000>;
-		qcom,cpr-timer-cons-up = <1>;
+		qcom,cpr-timer-cons-up = <0>;
 		qcom,cpr-timer-cons-down = <2>;
 		qcom,cpr-irq-line = <0>;
 		qcom,cpr-step-quotient = <15>;
-		qcom,cpr-up-threshold = <1>;
-		qcom,cpr-down-threshold = <2>;
+		qcom,cpr-up-threshold = <0>;
+		qcom,cpr-down-threshold = <10>;
 		qcom,cpr-idle-clocks = <5>;
 		qcom,cpr-gcnt-time = <1>;
 		qcom,vdd-apc-step-up-limit = <1>;
 		qcom,vdd-apc-step-down-limit = <1>;
 		qcom,cpr-apc-volt-step = <5000>;
+
+		qcom,cpr-fuse-redun-sel = <53 25 3 2>;
+		qcom,cpr-fuse-row = <61>;
+		qcom,cpr-fuse-bp-cpr-disable = <39>;
+		qcom,cpr-fuse-bp-scheme = <40>;
+		qcom,cpr-fuse-target-quot = <27 15 3>;
+		qcom,cpr-fuse-ro-sel = <47 41 44>;
+		qcom,cpr-fuse-redun-row = <52>;
+		qcom,cpr-fuse-redun-bp-cpr-disable = <24>;
+		qcom,cpr-fuse-redun-bp-scheme = <25>;
+		qcom,cpr-fuse-redun-target-quot = <32 12 0>;
+		qcom,cpr-fuse-redun-ro-sel = <44 26 29>;
+
+		qcom,cpr-enable;
+		qcom,use-tz-api;
 	};
 };
 
@@ -96,6 +120,16 @@
 			qcom,use-voltage-corner;
 			qcom,consumer-supplies = "vdd_sr2_dig", "";
 		};
+
+		pm8110_s1_floor_corner: regulator-s1-floor-corner {
+			compatible = "qcom,rpm-regulator-smd";
+			regulator-name = "8110_s1_floor_corner";
+			qcom,set = <3>;
+			regulator-min-microvolt = <1>;
+			regulator-max-microvolt = <7>;
+			qcom,use-voltage-floor-corner;
+			qcom,always-send-voltage;
+		};
 	};
 
 	rpm-regulator-smpa3 {
@@ -111,7 +145,7 @@
 	rpm-regulator-smpa4 {
 		status = "okay";
 		pm8110_s4: regulator-s4 {
-			regulator-min-microvolt = <2150000>;
+			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <2150000>;
 			qcom,init-voltage = <2150000>;
 			status = "okay";
@@ -172,6 +206,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <1200000>;
 			qcom,init-voltage = <1200000>;
+			regulator-always-on;
 			status = "okay";
 		};
 	};
@@ -355,4 +390,8 @@
 			status = "okay";
 		};
 	};
+};
+
+&pm8110_chg_batif {
+	regulator-name = "batfet";
 };

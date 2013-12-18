@@ -110,29 +110,6 @@ void hang_timer(unsigned long data)
 }
 
 /**
- * kgsl_hang_intr_work() - GPU hang interrupt work
- * @dev: device ptr
- *
- * This function is called when GPU hang interrupt happens. In
- * this fuction we check the device state and trigger fault
- * tolerance.
- */
-void kgsl_hang_intr_work(struct work_struct *work)
-{
-	struct kgsl_device *device = container_of(work, struct kgsl_device,
-							hang_intr_ws);
-	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-
-	/* If hang_intr_set is set, turn it off and trigger FT */
-	mutex_lock(&device->mutex);
-	if ((device->state == KGSL_STATE_ACTIVE) &&
-		(atomic_cmpxchg(&adreno_dev->hang_intr_set, 1, 0)))
-			adreno_dump_and_exec_ft(device);
-	mutex_unlock(&device->mutex);
-
-}
-
-/**
  * kgsl_trace_issueibcmds() - Call trace_issueibcmds by proxy
  * device: KGSL device
  * id: ID of the context submitting the command
@@ -588,7 +565,7 @@ kgsl_context_detach(struct kgsl_context *context)
 	 * detached, to avoid possibly freeing memory while
 	 * it is still in use by the GPU.
 	 */
-	kgsl_cancel_events_ctxt(device, context);
+	kgsl_context_cancel_events(device, context);
 
 	kgsl_context_put(context);
 }
@@ -676,7 +653,7 @@ static int kgsl_suspend_device(struct kgsl_device *device, pm_message_t state)
 	 * Make sure no user process is waiting for a timestamp
 	 * before supending.
 	 */
-	kgsl_active_count_wait(device);
+	kgsl_active_count_wait(device, 0);
 
 	/*
 	 * An interrupt could have snuck in and requested NAP in
@@ -842,9 +819,9 @@ static void kgsl_destroy_process_private(struct kref *kref)
 		debugfs_remove_recursive(private->debug_root);
 
 	while (1) {
-		rcu_read_lock();
+		spin_lock(&private->mem_lock);
 		entry = idr_get_next(&private->mem_idr, &next);
-		rcu_read_unlock();
+		spin_unlock(&private->mem_lock);
 		if (entry == NULL)
 			break;
 		kgsl_mem_entry_put(entry);
@@ -855,8 +832,8 @@ static void kgsl_destroy_process_private(struct kref *kref)
 		 */
 		next = 0;
 	}
-	kgsl_mmu_putpagetable(private->pagetable);
 	idr_destroy(&private->mem_idr);
+	kgsl_mmu_putpagetable(private->pagetable);
 
 	kfree(private);
 	return;
@@ -934,11 +911,7 @@ kgsl_get_process_private(struct kgsl_device_private *cur_dev_priv)
 
 	mutex_lock(&private->process_private_mutex);
 
-	/*
-	 * If debug root initialized then it means the rest of the fields
-	 * are also initialized
-	 */
-	if (private->debug_root)
+	if (test_bit(KGSL_PROCESS_INIT, &private->priv))
 		goto done;
 
 	private->mem_rb = RB_ROOT;
@@ -959,6 +932,8 @@ kgsl_get_process_private(struct kgsl_device_private *cur_dev_priv)
 	if (kgsl_process_init_debugfs(private))
 		goto error;
 
+	set_bit(KGSL_PROCESS_INIT, &private->priv);
+
 done:
 	mutex_unlock(&private->process_private_mutex);
 	return private;
@@ -974,14 +949,20 @@ int kgsl_close_device(struct kgsl_device *device)
 	int result = 0;
 	device->open_count--;
 	if (device->open_count == 0) {
-		BUG_ON(device->active_cnt > 1);
+
+		/* Wait for the active count to go to 1 */
+		kgsl_active_count_wait(device, 1);
+
+		/* Fail if the wait times out */
+		BUG_ON(atomic_read(&device->active_cnt) > 1);
+
 		result = device->ftbl->stop(device);
 		kgsl_pwrctrl_set_state(device, KGSL_STATE_INIT);
 		/*
 		 * active_cnt special case: we just stopped the device,
 		 * so no need to use kgsl_active_count_put()
 		 */
-		device->active_cnt--;
+		atomic_dec(&device->active_cnt);
 	} else {
 		kgsl_active_count_put(device);
 	}
@@ -1044,7 +1025,7 @@ int kgsl_open_device(struct kgsl_device *device)
 		 * time, so use this sequence instead of the kgsl_pwrctrl_wake()
 		 * which will be called by kgsl_active_count_get().
 		 */
-		device->active_cnt++;
+		atomic_inc(&device->active_cnt);
 		kgsl_sharedmem_set(device, &device->memstore, 0, 0,
 				device->memstore.size);
 
@@ -1067,7 +1048,8 @@ int kgsl_open_device(struct kgsl_device *device)
 	device->open_count++;
 err:
 	if (result)
-		device->active_cnt--;
+		atomic_dec(&device->active_cnt);
+
 	return result;
 }
 EXPORT_SYMBOL(kgsl_open_device);
@@ -1139,7 +1121,7 @@ err_stop:
 		kgsl_pwrctrl_enable(device);
 		result = device->ftbl->stop(device);
 		kgsl_pwrctrl_set_state(device, KGSL_STATE_INIT);
-		device->active_cnt--;
+		atomic_dec(&device->active_cnt);
 	}
 err_freedevpriv:
 	mutex_unlock(&device->mutex);
@@ -1279,11 +1261,11 @@ kgsl_sharedmem_find_id(struct kgsl_process_private *process, unsigned int id)
 {
 	struct kgsl_mem_entry *entry;
 
-	rcu_read_lock();
+	spin_lock(&process->mem_lock);
 	entry = idr_find(&process->mem_idr, id);
 	if (entry)
 		kgsl_mem_entry_get(entry);
-	rcu_read_unlock();
+	spin_unlock(&process->mem_lock);
 
 	return entry;
 }
@@ -1588,9 +1570,11 @@ static long kgsl_ioctl_cmdstream_readtimestamp_ctxtid(struct kgsl_device_private
 }
 
 static void kgsl_freemem_event_cb(struct kgsl_device *device,
-	void *priv, u32 id, u32 timestamp)
+	void *priv, u32 id, u32 timestamp, u32 type)
 {
 	struct kgsl_mem_entry *entry = priv;
+
+	/* Free the memory for all event types */
 	trace_kgsl_mem_timestamp_free(device, entry, id, timestamp, 0);
 	kgsl_mem_entry_put(entry);
 }
@@ -2406,7 +2390,8 @@ kgsl_ioctl_gpumem_sync_cache_bulk(struct kgsl_device_private *dev_priv,
 		entries[actual_count++] = entry;
 
 		/* If we exceed the breakeven point, flush the entire cache */
-		if (op_size >= kgsl_driver.full_cache_threshold &&
+		if (kgsl_driver.full_cache_threshold != 0 &&
+		    op_size >= kgsl_driver.full_cache_threshold &&
 		    param->op == KGSL_GPUMEM_CACHE_FLUSH) {
 			full_flush = true;
 			break;
@@ -2465,6 +2450,7 @@ _gpumem_alloc(struct kgsl_device_private *dev_priv,
 	int result;
 	struct kgsl_process_private *private = dev_priv->process_priv;
 	struct kgsl_mem_entry *entry;
+	int align;
 
 	/*
 	 * Mask off unknown flags from userspace. This way the caller can
@@ -2475,6 +2461,16 @@ _gpumem_alloc(struct kgsl_device_private *dev_priv,
 		| KGSL_MEMTYPE_MASK
 		| KGSL_MEMALIGN_MASK
 		| KGSL_MEMFLAGS_USE_CPU_MAP;
+
+	/* Cap the alignment bits to the highest number we can handle */
+
+	align = (flags & KGSL_MEMALIGN_MASK) >> KGSL_MEMALIGN_SHIFT;
+	if (align >= 32) {
+		KGSL_CORE_ERR("Alignment too big, restricting to 2^31\n");
+
+		flags &= ~KGSL_MEMALIGN_MASK;
+		flags |= (31 << KGSL_MEMALIGN_SHIFT) & KGSL_MEMALIGN_MASK;
+	}
 
 	entry = kgsl_mem_entry_create();
 	if (entry == NULL)
@@ -2642,21 +2638,23 @@ struct kgsl_genlock_event_priv {
 };
 
 /**
- * kgsl_genlock_event_cb - Event callback for a genlock timestamp event
- * @device - The KGSL device that expired the timestamp
- * @priv - private data for the event
- * @context_id - the context id that goes with the timestamp
- * @timestamp - the timestamp that triggered the event
+ * kgsl_genlock_event_cb() - Event callback for a genlock timestamp event
+ * @device: The KGSL device that expired the timestamp
+ * @priv: private data for the event
+ * @context_id: the context id that goes with the timestamp
+ * @timestamp: the timestamp that triggered the event
+ * @type: Type of event that signaled the callback
  *
  * Release a genlock lock following the expiration of a timestamp
  */
 
 static void kgsl_genlock_event_cb(struct kgsl_device *device,
-	void *priv, u32 context_id, u32 timestamp)
+	void *priv, u32 context_id, u32 timestamp, u32 type)
 {
 	struct kgsl_genlock_event_priv *ev = priv;
 	int ret;
 
+	/* Signal the lock for every event type */
 	ret = genlock_lock(ev->handle, GENLOCK_UNLOCK, 0, 0);
 	if (ret)
 		KGSL_CORE_ERR("Error while unlocking genlock: %d\n", ret);
@@ -3518,7 +3516,7 @@ int kgsl_postmortem_dump(struct kgsl_device *device, int manual)
 	/* For a manual dump, make sure that the system is idle */
 
 	if (manual) {
-		kgsl_active_count_wait(device);
+		kgsl_active_count_wait(device, 0);
 
 		if (device->state == KGSL_STATE_ACTIVE)
 			kgsl_idle(device);

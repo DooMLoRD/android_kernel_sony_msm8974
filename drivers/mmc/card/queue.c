@@ -264,7 +264,7 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 
 	if ((host->caps2 & MMC_CAP2_STOP_REQUEST) &&
 			host->ops->stop_request &&
-			mq->card->ext_csd.hpi)
+			mq->card->ext_csd.hpi_en)
 		blk_urgent_request(mq->queue, mmc_urgent_request);
 
 	memset(&mq->mqrq_cur, 0, sizeof(mq->mqrq_cur));
@@ -285,7 +285,9 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 	if (mmc_can_erase(card))
 		mmc_queue_setup_discard(mq->queue, card);
 
-	if ((mmc_can_sanitize(card) && (host->caps2 & MMC_CAP2_SANITIZE)))
+	/* Don't enable Sanitize if HPI is not supported */
+	if ((mmc_can_sanitize(card) && (host->caps2 & MMC_CAP2_SANITIZE) &&
+	    card->ext_csd.hpi_en))
 		mmc_queue_setup_sanitize(mq->queue);
 
 #ifdef CONFIG_MMC_BLOCK_BOUNCE
@@ -346,18 +348,23 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 #endif
 
 	if (!mqrq_cur->bounce_buf && !mqrq_prev->bounce_buf) {
+		unsigned short max_segs = host->max_segs;
+		if (mmc_card_sd(card)) {
+			max_segs = 256;
+		}
+
 		blk_queue_bounce_limit(mq->queue, limit);
 		blk_queue_max_hw_sectors(mq->queue,
 			min(host->max_blk_count, host->max_req_size / 512));
-		blk_queue_max_segments(mq->queue, host->max_segs);
+		blk_queue_max_segments(mq->queue, max_segs);
 		blk_queue_max_segment_size(mq->queue, host->max_seg_size);
 
-		mqrq_cur->sg = mmc_alloc_sg(host->max_segs, &ret);
+		mqrq_cur->sg = mmc_alloc_sg(max_segs, &ret);
 		if (ret)
 			goto cleanup_queue;
 
 
-		mqrq_prev->sg = mmc_alloc_sg(host->max_segs, &ret);
+		mqrq_prev->sg = mmc_alloc_sg(max_segs, &ret);
 		if (ret)
 			goto cleanup_queue;
 	}
@@ -438,12 +445,13 @@ EXPORT_SYMBOL(mmc_cleanup_queue);
 /**
  * mmc_queue_suspend - suspend a MMC request queue
  * @mq: MMC queue to suspend
+ * @wait: Wait till MMC request queue is empty
  *
  * Stop the block request queue, and wait for our thread to
  * complete any outstanding requests.  This ensures that we
  * won't suspend while a request is being processed.
  */
-int mmc_queue_suspend(struct mmc_queue *mq)
+int mmc_queue_suspend(struct mmc_queue *mq, int wait)
 {
 	struct request_queue *q = mq->queue;
 	unsigned long flags;
@@ -457,7 +465,7 @@ int mmc_queue_suspend(struct mmc_queue *mq)
 		spin_unlock_irqrestore(q->queue_lock, flags);
 
 		rc = down_trylock(&mq->thread_sem);
-		if (rc) {
+		if (rc && !wait) {
 			/*
 			 * Failed to take the lock so better to abort the
 			 * suspend because mmcqd thread is processing requests.
@@ -467,6 +475,9 @@ int mmc_queue_suspend(struct mmc_queue *mq)
 			blk_start_queue(q);
 			spin_unlock_irqrestore(q->queue_lock, flags);
 			rc = -EBUSY;
+		} else if (rc && wait) {
+			down(&mq->thread_sem);
+			rc = 0;
 		}
 	}
 	return rc;

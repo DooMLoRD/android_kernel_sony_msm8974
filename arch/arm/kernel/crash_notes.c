@@ -23,10 +23,6 @@
 #include <asm/cacheflush.h>
 #include <asm/crash_notes.h>
 
-#ifdef CONFIG_RAMDUMP_TAGS
-#include <linux/rdtags.h>
-#endif
-
 #define CRASH_NOTE_NAME "CORE"
 
 #define CRASH_NOTE_MAGIC1 0xCAFEBABE
@@ -157,20 +153,6 @@ void crash_notes_save_this_cpu(enum crash_note_save_type type,
 	note->n_descsz = 0;
 	note->n_type   = 0;
 
-#ifdef CONFIG_RAMDUMP_TAGS
-	if (type == CRASH_NOTE_CRASHING ||
-		type == CRASH_NOTE_STOPPING) {
-		char tmp_buf[24];
-		snprintf(tmp_buf, sizeof(tmp_buf),
-			"%s_proc_name_cpu%u",
-			type == CRASH_NOTE_CRASHING ? "crash" : "halted",
-			cpu);
-		rdtags_add_tag_string(
-				tmp_buf,
-				process_name);
-	}
-#endif
-
 	extras = (struct crash_extras *)(((u8 *)start) + CRASH_NOTE_BYTES -
 						CRASH_NOTE_MAGIC_BYTES);
 	memset(extras, 0, CRASH_NOTE_MAGIC_BYTES);
@@ -264,7 +246,7 @@ static int __init crash_notes_init(void)
 	/* Allocate memory for saving cpu registers. */
 	crash_notes = alloc_percpu(note_buf_t);
 	if (!crash_notes) {
-		printk(KERN_ERR "crash: Memory allocation for saving cpu "
+		printk(KERN_ERR "crash: Memory allocation for saving cpu" \
 		       "register states failed\n");
 		return -ENOMEM;
 	}

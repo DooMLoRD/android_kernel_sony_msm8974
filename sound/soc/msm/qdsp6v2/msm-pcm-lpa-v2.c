@@ -40,8 +40,8 @@
 #include "msm-pcm-q6-v2.h"
 #include "msm-pcm-routing-v2.h"
 #include "audio_ocmem.h"
-#include <sound/tlv.h>
 #include <sound/pcm.h>
+#include <sound/tlv.h>
 
 #define LPA_LR_VOL_MAX_STEPS	0x20002000
 
@@ -290,6 +290,7 @@ static int msm_pcm_restart(struct snd_pcm_substream *substream)
 	struct output_meta_data_st output_meta_data;
 
 	pr_debug("%s: restart\n", __func__);
+	memset(&output_meta_data, 0x0, sizeof(struct output_meta_data_st));
 	if (runtime->render_flag & SNDRV_RENDER_STOPPED) {
 		buf = prtd->audio_client->port[IN].buf;
 		pr_debug("%s:writing %d bytes of buffer[%d] to dsp 2\n",
@@ -473,13 +474,13 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 	if (prtd->audio_client) {
 		dir = IN;
 		atomic_set(&prtd->pending_buffer, 0);
+
 		if (atomic_read(&lpa_audio.audio_ocmem_req) > 1)
 			atomic_dec(&lpa_audio.audio_ocmem_req);
 		else if (atomic_cmpxchg(&lpa_audio.audio_ocmem_req, 1, 0))
 			audio_ocmem_process_req(AUDIO, false);
 		pr_debug("%s: req: %d\n", __func__,
 			atomic_read(&lpa_audio.audio_ocmem_req));
-
 		q6asm_cmd(prtd->audio_client, CMD_CLOSE);
 		q6asm_audio_client_buf_free_contiguous(dir,
 				prtd->audio_client);

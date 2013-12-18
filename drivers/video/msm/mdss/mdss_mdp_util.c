@@ -41,9 +41,11 @@ enum {
 	MDP_INTR_PING_PONG_0,
 	MDP_INTR_PING_PONG_1,
 	MDP_INTR_PING_PONG_2,
+	MDP_INTR_PING_PONG_3,
 	MDP_INTR_PING_PONG_0_RD_PTR,
 	MDP_INTR_PING_PONG_1_RD_PTR,
 	MDP_INTR_PING_PONG_2_RD_PTR,
+	MDP_INTR_PING_PONG_3_RD_PTR,
 	MDP_INTR_WB_0,
 	MDP_INTR_WB_1,
 	MDP_INTR_WB_2,
@@ -163,6 +165,9 @@ irqreturn_t mdss_mdp_isr(int irq, void *ptr)
 	if (isr & MDSS_MDP_INTR_PING_PONG_2_DONE)
 		mdss_mdp_intr_done(MDP_INTR_PING_PONG_2);
 
+	if (isr & MDSS_MDP_INTR_PING_PONG_3_DONE)
+		mdss_mdp_intr_done(MDP_INTR_PING_PONG_3);
+
 	if (isr & MDSS_MDP_INTR_PING_PONG_0_RD_PTR)
 		mdss_mdp_intr_done(MDP_INTR_PING_PONG_0_RD_PTR);
 
@@ -171,6 +176,9 @@ irqreturn_t mdss_mdp_isr(int irq, void *ptr)
 
 	if (isr & MDSS_MDP_INTR_PING_PONG_2_RD_PTR)
 		mdss_mdp_intr_done(MDP_INTR_PING_PONG_2_RD_PTR);
+
+	if (isr & MDSS_MDP_INTR_PING_PONG_3_RD_PTR)
+		mdss_mdp_intr_done(MDP_INTR_PING_PONG_3_RD_PTR);
 
 	if (isr & MDSS_MDP_INTR_INTF_0_VSYNC) {
 		mdss_mdp_intr_done(MDP_INTR_VSYNC_INTF_0);
@@ -229,6 +237,20 @@ struct mdss_mdp_format_params *mdss_mdp_get_format_params(u32 format)
 	return NULL;
 }
 
+void mdss_mdp_intersect_rect(struct mdss_mdp_img_rect *res_rect,
+	const struct mdss_mdp_img_rect *dst_rect,
+	const struct mdss_mdp_img_rect *sci_rect)
+{
+	int l = max(dst_rect->x, sci_rect->x);
+	int t = max(dst_rect->y, sci_rect->y);
+	int r = min((dst_rect->x + dst_rect->w), (sci_rect->x + sci_rect->w));
+	int b = min((dst_rect->y + dst_rect->h), (sci_rect->y + sci_rect->h));
+
+	if (r < l || b < t)
+		*res_rect = (struct mdss_mdp_img_rect){0, 0, 0, 0};
+	else
+		*res_rect = (struct mdss_mdp_img_rect){l, t, (r-l), (b-t)};
+}
 int mdss_mdp_get_rau_strides(u32 w, u32 h,
 			       struct mdss_mdp_format_params *fmt,
 			       struct mdss_mdp_plane_sizes *ps)
@@ -527,6 +549,9 @@ int mdss_mdp_get_img(struct msmfb_data *img, struct mdss_mdp_img_data *data)
 			ret = ion_map_iommu(iclient, data->srcp_ihdl,
 					    mdss_get_iommu_domain(domain),
 					    0, SZ_4K, 0, start, len, 0, 0);
+			if (ret && (domain == MDSS_IOMMU_DOMAIN_SECURE))
+				msm_ion_unsecure_buffer(iclient,
+						data->srcp_ihdl);
 		} else {
 			ret = ion_phys(iclient, data->srcp_ihdl, start,
 				       (size_t *) len);
@@ -541,6 +566,7 @@ int mdss_mdp_get_img(struct msmfb_data *img, struct mdss_mdp_img_data *data)
 
 	if (!*start) {
 		pr_err("start address is zero!\n");
+		mdss_mdp_put_img(data);
 		return -ENOMEM;
 	}
 
@@ -551,7 +577,8 @@ int mdss_mdp_get_img(struct msmfb_data *img, struct mdss_mdp_img_data *data)
 		pr_debug("mem=%d ihdl=%p buf=0x%x len=0x%x\n", img->memory_id,
 			 data->srcp_ihdl, data->addr, data->len);
 	} else {
-		return -EINVAL;
+		mdss_mdp_put_img(data);
+		return ret ? : -EOVERFLOW;
 	}
 
 	return ret;

@@ -28,6 +28,10 @@
 #define DCI_LOG_CON_MIN_LEN		14
 #define DCI_EVENT_CON_MIN_LEN		16
 
+#ifdef CONFIG_DEBUG_FS
+#define DIAG_DCI_DEBUG_CNT	100
+#define DIAG_DCI_DEBUG_LEN	100
+#endif
 
 /* 16 log code categories, each has:
  * 1 bytes equip id + 1 dirty byte + 512 byte max log mask
@@ -61,6 +65,8 @@ struct diag_dci_client_tbl {
 	int dropped_events;
 	int received_logs;
 	int received_events;
+	struct mutex data_mutex;
+	uint8_t real_time;
 };
 
 /* This is used for DCI health stats */
@@ -88,6 +94,19 @@ enum {
 	DIAG_DCI_SEND_DATA_FAIL,/* writing to kernel or peripheral fails */
 	DIAG_DCI_TABLE_ERR	/* Error dealing with registration tables */
 };
+
+#ifdef CONFIG_DEBUG_FS
+/* To collect debug information during each smd read */
+struct diag_dci_data_info {
+	unsigned long iteration;
+	int data_size;
+	char time_stamp[DIAG_TS_SIZE];
+	uint8_t ch_type;
+};
+
+extern struct diag_dci_data_info *dci_data_smd;
+extern struct mutex dci_stat_mutex;
+#endif
 
 int diag_dci_init(void);
 void diag_dci_exit(void);
@@ -117,4 +136,10 @@ void extract_dci_events(unsigned char *buf);
 void create_dci_event_mask_tbl(unsigned char *tbl_buf);
 int diag_dci_clear_event_mask(void);
 int diag_dci_query_event_mask(uint16_t event_id);
+void diag_dci_smd_record_info(int read_bytes, uint8_t ch_type);
+uint8_t diag_dci_get_cumulative_real_time(void);
+int diag_dci_set_real_time(int client_id, uint8_t real_time);
+/* Functions related to DCI wakeup sources */
+void diag_dci_try_activate_wakeup_source(smd_channel_t *channel);
+void diag_dci_try_deactivate_wakeup_source(smd_channel_t *channel);
 #endif

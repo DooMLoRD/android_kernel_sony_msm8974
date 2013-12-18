@@ -117,11 +117,9 @@ static int
 armpmu_map_event(const unsigned (*event_map)[PERF_COUNT_HW_MAX], u64 config)
 {
 	int mapping;
-/* Security CVE-2013-4254
- * http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=b88a2595b6d8aedbd275c07dfa784657b4f757eb */
+
 	if (config >= PERF_COUNT_HW_MAX)
-		return -ENOENT;
-/* Security CVE-2013-4254 end */
+		return -EINVAL;
 
 	mapping = (*event_map)[config];
 	return mapping == HW_OP_UNSUPPORTED ? -ENOENT : mapping;
@@ -348,11 +346,8 @@ validate_event(struct pmu_hw_events *hw_events,
 	struct hw_perf_event fake_event = event->hw;
 	struct pmu *leader_pmu = event->group_leader->pmu;
 
-/* Security CVE-2013-4254
- * http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=c95eb3184ea1a3a2551df57190c81da695e2144b */
 	if (is_software_event(event))
 		return 1;
-/* Security CVE-2013-4254 end */
 
 	if (event->pmu != leader_pmu || event->state <= PERF_EVENT_STATE_OFF)
 		return 1;
@@ -915,11 +910,13 @@ static struct notifier_block __cpuinitdata pmu_cpu_notifier = {
 static int perf_cpu_pm_notifier(struct notifier_block *self, unsigned long cmd,
 		void *v)
 {
+	struct pmu *pmu;
 	switch (cmd) {
 	case CPU_PM_ENTER:
 		if (cpu_has_active_perf((int)v)) {
 			armpmu_update_counters();
-			perf_pmu_disable(&cpu_pmu->pmu);
+			pmu = &cpu_pmu->pmu;
+			pmu->pmu_disable(pmu);
 		}
 		break;
 
@@ -932,7 +929,8 @@ static int perf_cpu_pm_notifier(struct notifier_block *self, unsigned long cmd,
 			 */
 			__get_cpu_var(from_idle) = 1;
 			cpu_pmu->reset(NULL);
-			perf_pmu_enable(&cpu_pmu->pmu);
+			pmu = &cpu_pmu->pmu;
+			pmu->pmu_enable(pmu);
 		}
 		break;
 	}

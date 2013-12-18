@@ -1,4 +1,5 @@
 /* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,6 +33,7 @@
 #include <linux/debugfs.h>
 #include <linux/miscdevice.h>
 #include <linux/interrupt.h>
+#include <linux/of_gpio.h>
 #include <linux/poll.h>
 #include <linux/wait.h>
 #include <asm/current.h>
@@ -218,6 +220,14 @@ int subsys_get_restart_level(struct subsys_device *dev)
 	return dev->restart_level;
 }
 EXPORT_SYMBOL(subsys_get_restart_level);
+
+void subsys_set_restart_level(struct subsys_device *dev, int new_level)
+{
+	if (new_level >= RESET_SOC && new_level < RESET_LEVEL_MAX)
+		dev->restart_level = new_level;
+	else
+		pr_err("Incorrect restart level %d\n", new_level);
+}
 
 static void subsys_set_state(struct subsys_device *subsys,
 			     enum subsys_state state)
@@ -507,8 +517,10 @@ static int subsys_start(struct subsys_device *subsys)
 	if (ret)
 		return ret;
 
-	if (subsys->desc->is_not_loadable)
+	if (subsys->desc->is_not_loadable) {
+		subsys_set_state(subsys, SUBSYS_ONLINE);
 		return 0;
+	}
 
 	ret = wait_for_err_ready(subsys);
 	if (ret)
@@ -1026,8 +1038,8 @@ static void subsys_device_release(struct device *dev)
 static irqreturn_t subsys_err_ready_intr_handler(int irq, void *subsys)
 {
 	struct subsys_device *subsys_dev = subsys;
-	pr_info("Error ready interrupt occured for %s\n",
-		 subsys_dev->desc->name);
+	dev_info(subsys_dev->desc->dev,
+		"Subsystem error monitoring/handling services are up\n");
 
 	if (subsys_dev->desc->is_not_loadable)
 		return IRQ_HANDLED;
@@ -1063,6 +1075,129 @@ static void subsys_misc_device_remove(struct subsys_device *subsys_dev)
 	misc_deregister(&subsys_dev->misc_dev);
 }
 
+static int __get_gpio(struct subsys_desc *desc, const char *prop,
+		int *gpio)
+{
+	struct device_node *dnode = desc->dev->of_node;
+	int ret = -ENOENT;
+
+	if (of_find_property(dnode, prop, NULL)) {
+		*gpio = of_get_named_gpio(dnode, prop, 0);
+		ret = *gpio < 0 ? *gpio : 0;
+	}
+
+	return ret;
+}
+
+static int __get_irq(struct subsys_desc *desc, const char *prop,
+		unsigned int *irq)
+{
+	int ret, gpio, irql;
+
+	ret = __get_gpio(desc, prop, &gpio);
+	if (ret)
+		return ret;
+
+	irql = gpio_to_irq(gpio);
+
+	if (irql == -ENOENT)
+		irql = -ENXIO;
+
+	if (irql < 0) {
+		pr_err("[%s]: Error getting IRQ \"%s\"\n", desc->name,
+				prop);
+		return irql;
+	} else {
+		*irq = irql;
+	}
+
+	return 0;
+}
+
+static int subsys_parse_devicetree(struct subsys_desc *desc)
+{
+	int ret;
+	struct platform_device *pdev = container_of(desc->dev,
+					struct platform_device, dev);
+
+	ret = __get_irq(desc, "qcom,gpio-err-fatal", &desc->err_fatal_irq);
+	if (ret && ret != -ENOENT)
+		return ret;
+
+	ret = __get_irq(desc, "qcom,gpio-err-ready", &desc->err_ready_irq);
+	if (ret && ret != -ENOENT)
+		return ret;
+
+	ret = __get_irq(desc, "qcom,gpio-stop-ack", &desc->stop_ack_irq);
+	if (ret && ret != -ENOENT)
+		return ret;
+
+	ret = __get_gpio(desc, "qcom,gpio-force-stop", &desc->force_stop_gpio);
+	if (ret && ret != -ENOENT)
+		return ret;
+
+	desc->wdog_bite_irq = platform_get_irq(pdev, 0);
+	if (desc->wdog_bite_irq < 0)
+		return desc->wdog_bite_irq;
+
+	return 0;
+}
+
+static int subsys_setup_irqs(struct subsys_device *subsys)
+{
+	struct subsys_desc *desc = subsys->desc;
+	int ret;
+
+	if (desc->err_fatal_irq && desc->err_fatal_handler) {
+		ret = devm_request_irq(desc->dev, desc->err_fatal_irq,
+				desc->err_fatal_handler,
+				IRQF_TRIGGER_RISING, desc->name, desc);
+		if (ret < 0) {
+			dev_err(desc->dev, "[%s]: Unable to register error fatal IRQ handler!: %d\n",
+				desc->name, ret);
+			return ret;
+		}
+	}
+
+	if (desc->stop_ack_irq && desc->stop_ack_handler) {
+		ret = devm_request_irq(desc->dev, desc->stop_ack_irq,
+			desc->stop_ack_handler,
+			IRQF_TRIGGER_RISING, desc->name, desc);
+		if (ret < 0) {
+			dev_err(desc->dev, "[%s]: Unable to register stop ack handler!: %d\n",
+				desc->name, ret);
+			return ret;
+		}
+	}
+
+	if (desc->wdog_bite_irq && desc->wdog_bite_handler) {
+		ret = devm_request_irq(desc->dev, desc->wdog_bite_irq,
+			desc->wdog_bite_handler,
+			IRQF_TRIGGER_RISING, desc->name, desc);
+		if (ret < 0) {
+			dev_err(desc->dev, "[%s]: Unable to register wdog bite handler!: %d\n",
+				desc->name, ret);
+			return ret;
+		}
+	}
+
+	if (desc->err_ready_irq) {
+		ret = devm_request_irq(desc->dev,
+					desc->err_ready_irq,
+					subsys_err_ready_intr_handler,
+					IRQF_TRIGGER_RISING,
+					"error_ready_interrupt", subsys);
+		if (ret < 0) {
+			dev_err(desc->dev,
+				"[%s]: Unable to register err ready handler\n",
+				desc->name);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
 struct subsys_device *subsys_register(struct subsys_desc *desc)
 {
 	struct subsys_device *subsys;
@@ -1080,6 +1215,9 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 
 	subsys->notify = subsys_notif_add_subsys(desc->name);
 	subsys->restart_order = update_restart_order(subsys);
+	ret = subsys_parse_devicetree(desc);
+	if (ret)
+		goto err_dtree;
 
 	snprintf(subsys->wlname, sizeof(subsys->wlname), "ssr(%s)", desc->name);
 	wake_lock_init(&subsys->wake_lock, WAKE_LOCK_SUSPEND, subsys->wlname);
@@ -1113,19 +1251,9 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 		goto err_register;
 	}
 
-	if (subsys->desc->err_ready_irq) {
-		ret = devm_request_irq(&subsys->dev,
-					subsys->desc->err_ready_irq,
-					subsys_err_ready_intr_handler,
-					IRQF_TRIGGER_RISING,
-					"error_ready_interrupt", subsys);
-		if (ret < 0) {
-			dev_err(&subsys->dev,
-				"[%s]: Unable to register err ready handler\n",
-				subsys->desc->name);
-			goto err_misc_device;
-		}
-	}
+	ret = subsys_setup_irqs(subsys);
+	if (ret < 0)
+		goto err_misc_device;
 
 	return subsys;
 
@@ -1138,6 +1266,7 @@ err_debugfs:
 	ida_simple_remove(&subsys_ida, subsys->id);
 err_ida:
 	wake_lock_destroy(&subsys->wake_lock);
+err_dtree:
 	kfree(subsys);
 	return ERR_PTR(ret);
 }

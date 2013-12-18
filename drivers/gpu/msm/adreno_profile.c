@@ -1116,7 +1116,7 @@ void adreno_profile_preib_processing(struct kgsl_device *device,
 
 	/* create the shared ibdesc */
 	_build_pre_ib_cmds(profile, rbcmds, entry_head,
-			rb->timestamp[KGSL_MEMSTORE_GLOBAL] + 1, context_id);
+			rb->global_ts + 1, context_id);
 
 	/* set flag to sync with post ib commands */
 	*cmd_flags |= KGSL_CMD_FLAGS_PROFILE;

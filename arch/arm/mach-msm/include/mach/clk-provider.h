@@ -108,11 +108,13 @@ struct clk_ops {
 	int (*in_hwcg_mode)(struct clk *clk);
 	enum handoff (*handoff)(struct clk *clk);
 	int (*reset)(struct clk *clk, enum clk_reset_action action);
+	int (*pre_set_rate)(struct clk *clk, unsigned long new_rate);
 	int (*set_rate)(struct clk *clk, unsigned long rate);
+	void (*post_set_rate)(struct clk *clk, unsigned long old_rate);
 	int (*set_max_rate)(struct clk *clk, unsigned long rate);
 	int (*set_flags)(struct clk *clk, unsigned flags);
 	unsigned long (*get_rate)(struct clk *clk);
-	int (*list_rate)(struct clk *clk, unsigned n);
+	long (*list_rate)(struct clk *clk, unsigned n);
 	int (*is_enabled)(struct clk *clk);
 	long (*round_rate)(struct clk *clk, unsigned long rate);
 	int (*set_parent)(struct clk *clk, struct clk *parent);
@@ -166,12 +168,23 @@ void __clk_post_reparent(struct clk *c, struct clk *old, unsigned long *flags);
 int msm_clock_register(struct clk_lookup *table, size_t size);
 
 extern struct clk dummy_clk;
+extern struct clk_ops clk_ops_dummy;
 
 #define CLK_DUMMY(clk_name, clk_id, clk_dev, flags) { \
 	.con_id = clk_name, \
 	.dev_id = clk_dev, \
 	.clk = &dummy_clk, \
 	}
+
+#define DEFINE_CLK_DUMMY(name, _rate) \
+	static struct fixed_clk name = { \
+		.c = { \
+			.dbg_name = #name, \
+			.rate = _rate, \
+			.ops = &clk_ops_dummy, \
+			CLK_INIT(name.c), \
+		}, \
+	};
 
 #define CLK_LOOKUP(con, c, dev) { .con_id = con, .clk = &c, .dev_id = dev }
 

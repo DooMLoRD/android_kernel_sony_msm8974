@@ -10,15 +10,10 @@
  * GNU General Public License for more details.
  */
 
-/include/ "dsi-panel-nt35590-720p-video.dtsi"
 /include/ "msm8226-camera-sensor-cdp.dtsi"
 
 &soc {
 	serial@f991f000 {
-		status = "ok";
-	};
-
-	qcom,mdss_dsi_nt35590_720p_video {
 		status = "ok";
 	};
 
@@ -34,6 +29,8 @@
 			synaptics,irq-gpio = <&msmgpio 17 0x2008>;
 			synaptics,button-map = <139 102 158>;
 			synaptics,i2c-pull-up;
+			synaptics,power-down;
+			synaptics,disable-gpios;
 		};
 	};
 
@@ -74,7 +71,7 @@
 			compatible = "micrel,ks8851";
 			reg = <3>;
 			interrupt-parent = <&msmgpio>;
-			interrupts = <0 115 0>;
+			interrupts = <115 0x8>;
 			spi-max-frequency = <4800000>;
 			rst-gpio = <&msmgpio 114 0>;
 			vdd-io-supply = <&pm8226_lvs1>;
@@ -107,14 +104,30 @@
 
 		qcom,cdc-mclk-gpios = <&pm8226_gpios 1 0>;
 		qcom,cdc-vdd-spkr-gpios = <&pm8226_gpios 2 0>;
-		qcom,headset-jack-type-NO;
+		qcom,headset-jack-type-NC;
+	};
+
+	sound-9302 {
+		qcom,audio-routing =
+			"RX_BIAS", "MCLK",
+			"LDO_H", "MCLK",
+			"SPK_OUT", "MCLK",
+			"SPK_OUT", "EXT_VDD_SPKR",
+			"AMIC1", "MIC BIAS1 External",
+			"MIC BIAS1 External", "Handset Mic",
+			"AMIC2", "MIC BIAS2 External",
+			"MIC BIAS2 External", "Headset Mic",
+			"AMIC3", "MIC BIAS1 External",
+			"MIC BIAS1 External", "Handset Mic";
+
+		qcom,cdc-mclk-gpios = <&pm8226_gpios 1 0>;
+		qcom,cdc-vdd-spkr-gpios = <&pm8226_gpios 2 0>;
+		qcom,headset-jack-type-NC;
 	};
 };
 
 &sdcc1 {
 	vdd-supply = <&pm8226_l17>;
-	qcom,vdd-always-on;
-	qcom,vdd-lpm-sup;
 	qcom,vdd-voltage-level = <2950000 2950000>;
 	qcom,vdd-current-level = <800 500000>;
 
@@ -139,8 +152,6 @@
 
 &sdhc_1 {
 	vdd-supply = <&pm8226_l17>;
-	qcom,vdd-always-on;
-	qcom,vdd-lpm-sup;
 	qcom,vdd-voltage-level = <2950000 2950000>;
 	qcom,vdd-current-level = <800 500000>;
 
@@ -167,8 +178,6 @@
 	qcom,vdd-current-level = <9000 800000>;
 
 	vdd-io-supply = <&pm8226_l21>;
-	qcom,vdd-io-always-on;
-	qcom,vdd-io-lpm-sup;
 	qcom,vdd-io-voltage-level = <1800000 2950000>;
 	qcom,vdd-io-current-level = <6 22000>;
 
@@ -204,8 +213,6 @@
 	qcom,vdd-current-level = <9000 800000>;
 
 	vdd-io-supply = <&pm8226_l21>;
-	qcom,vdd-io-always-on;
-	qcom,vdd-io-lpm-sup;
 	qcom,vdd-io-voltage-level = <1800000 2950000>;
 	qcom,vdd-io-current-level = <6 22000>;
 
@@ -228,6 +235,16 @@
 	cd-gpios = <&msmgpio 38 0x1>;
 
 	status = "ok";
+};
+
+&sdcc3 {
+	qcom,sup-voltages = <1800 1800>;
+	status = "disabled";
+};
+
+&sdhc_3 {
+	qcom,sup-voltages = <1800 1800>;
+	status = "disabled";
 };
 
 &spmi_bus {
@@ -253,18 +270,24 @@
 			qcom,led_mpp_4 {
 				label = "mpp";
 				linux,name = "green";
-				linux,default-trigger = "none";
+				linux,default-trigger = "battery-full";
 				qcom,default-state = "off";
 				qcom,max-current = <40>;
 				qcom,current-setting = <5>;
 				qcom,id = <6>;
-				qcom,mode = "lpg";
+				qcom,mode = "pwm";
+				qcom,pwm-us = <1000>;
 				qcom,source-sel = <8>;
 				qcom,mode-ctrl = <0x60>;
 				qcom,pwm-channel = <0>;
 				qcom,start-idx = <1>;
-				qcom,duty-pcts = [00 00 00 00 64
-						 64 00 00 00 00];
+				qcom,ramp-step-ms = <120>;
+				qcom,duty-pcts = [00 00 00 00 00
+						  00 00 00 00 00
+						  50 00 00 00 00
+						  00 00 00 00 00
+						  00];
+				qcom,use-blink;
 			};
 		};
 
@@ -273,18 +296,24 @@
 			qcom,led_mpp_6 {
 				label = "mpp";
 				linux,name = "red";
-				linux,default-trigger = "none";
+				linux,default-trigger = "battery-charging";
 				qcom,default-state = "off";
 				qcom,max-current = <40>;
 				qcom,current-setting = <5>;
 				qcom,id = <6>;
+				qcom,mode = "pwm";
+				qcom,pwm-us = <1000>;
 				qcom,mode-ctrl = <0x60>;
 				qcom,source-sel = <10>;
-				qcom,mode = "lpg";
 				qcom,pwm-channel = <5>;
 				qcom,start-idx = <1>;
-				qcom,duty-pcts = [00 00 00 00 64
-						 64 00 00 00 00];
+				qcom,ramp-step-ms = <120>;
+				qcom,duty-pcts = [00 00 00 00 00
+						  00 00 00 00 00
+						  50 00 00 00 00
+						  00 00 00 00 00
+						  00];
+				qcom,use-blink;
 			};
 		};
 	};
@@ -303,11 +332,17 @@
 				qcom,ctrl-delay-us = <0>;
 				qcom,boost-curr-lim = <3>;
 				qcom,cp-sel = <0>;
-				qcom,switch-freq = <2>;
+				qcom,switch-freq = <11>;
 				qcom,ovp-val = <0>;
 				qcom,num-strings = <1>;
 				qcom,id = <0>;
 			};
+		};
+
+		qcom,vibrator@c000 {
+			status = "okay";
+			qcom,vib-timeout-ms = <15000>;
+			qcom,vib-vtg-level-mV = <3100>;
 		};
 	};
 };
@@ -367,6 +402,12 @@
 	};
 
 	mpp@a400 { /* MPP 5 */
+		/* PA_THERM0 config */
+		qcom,mode = <4>; /* AIN input */
+		qcom,invert = <1>; /* Enable MPP */
+		qcom,ain-route = <0>; /* AMUX 5 */
+		qcom,master-en = <1>;
+		qcom,src-sel = <0>; /* Function constant */
 	};
 
 	mpp@a500 { /* MPP 6 */
@@ -376,14 +417,56 @@
 	};
 
 	mpp@a700 { /* MPP 8 */
+		/* PA_THERM1 config */
+		qcom,mode = <4>; /* AIN input */
+		qcom,invert = <1>; /* Enable MPP */
+		qcom,ain-route = <3>; /* AMUX 8 */
+		qcom,master-en = <1>;
+		qcom,src-sel = <0>; /* Function constant */
 	};
 };
 
 &pm8226_chg {
 	qcom,charging-disabled;
 	qcom,use-default-batt-values;
+
+	qcom,bat-if@1200 {
+		status = "disabled";
+	};
 };
 
-&usb_otg_sw {
-	status = "okay";
+&pm8226_vadc {
+	chan@14 {
+		label = "pa_therm0";
+		reg = <0x14>;
+		qcom,decimation = <0>;
+		qcom,pre-div-channel-scaling = <0>;
+		qcom,calibration-type = "ratiometric";
+		qcom,scale-function = <2>;
+		qcom,hw-settle-time = <2>;
+		qcom,fast-avg-setup = <0>;
+	};
+
+	chan@17 {
+		label = "pa_therm1";
+		reg = <0x17>;
+		qcom,decimation = <0>;
+		qcom,pre-div-channel-scaling = <0>;
+		qcom,calibration-type = "ratiometric";
+		qcom,scale-function = <2>;
+		qcom,hw-settle-time = <2>;
+		qcom,fast-avg-setup = <0>;
+	};
+};
+
+&mdss_mdp {
+	qcom,mdss-pref-prim-intf = "dsi";
+};
+
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&dsi_nt35590_720_vid>;
+};
+
+&dsi_nt35590_720_vid {
+	qcom,cont-splash-enabled;
 };

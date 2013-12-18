@@ -5,7 +5,11 @@ ifeq ($(TARGET_PREBUILT_KERNEL),)
 
 KERNEL_OUT := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ
 KERNEL_CONFIG := $(KERNEL_OUT)/.config
+ifeq ($(TARGET_KERNEL_APPEND_DTB), true)
+TARGET_PREBUILT_INT_KERNEL := $(KERNEL_OUT)/arch/arm/boot/zImage-dtb
+else
 TARGET_PREBUILT_INT_KERNEL := $(KERNEL_OUT)/arch/arm/boot/zImage
+endif
 KERNEL_HEADERS_INSTALL := $(KERNEL_OUT)/usr
 KERNEL_MODULES_INSTALL := system
 KERNEL_MODULES_OUT := $(TARGET_OUT)/lib/modules
@@ -14,7 +18,7 @@ KERNEL_IMG=$(KERNEL_OUT)/arch/arm/boot/Image
 USE_SOMC_BOARD ?= $(shell $(PERL) -e '$$somc = "n"; while (<>) { if (/CONFIG_MACH_SONY_.+=y/) { $$somc = "y"; break } } print $$somc;' kernel/arch/arm/configs/$(KERNEL_DEFCONFIG))
 
 ifeq "$(USE_SOMC_BOARD)" "y"
-DTS_NAMES ?= msm8974 apq8074
+DTS_NAMES ?= msm8974 apq8074 msm8974pro-ab
 SOMC_BOARD = $(shell echo $(KERNEL_DEFCONFIG) | sed -e "s/_defconfig//")
 endif
 DTS_NAMES ?= $(shell $(PERL) -e 'while (<>) {$$a = $$1 if /CONFIG_ARCH_((?:MSM|QSD|MPQ)[a-zA-Z0-9]+)=y/; $$r = $$1 if /CONFIG_MSM_SOC_REV_(?!NONE)(\w+)=y/; $$arch = $$arch.lc("$$a$$r ") if /CONFIG_ARCH_((?:MSM|QSD|MPQ)[a-zA-Z0-9]+)=y/} print $$arch;' $(KERNEL_CONFIG))

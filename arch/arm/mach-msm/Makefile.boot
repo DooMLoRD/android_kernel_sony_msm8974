@@ -47,35 +47,26 @@ endif
 
 # MSM8974
    zreladdr-$(CONFIG_ARCH_MSM8974)	:= 0x00008000
-   dtb-$(CONFIG_MACH_SONY_RHINE_CDB)	+= msm8974-v1-rhine_cdb.dtb
-   dtb-$(CONFIG_MACH_SONY_RHINE_CDB)	+= msm8974-v2-rhine_cdb.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_DCM)	+= msm8974-v1-rhine_honami_dcm.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_DCM)	+= msm8974-v2-rhine_honami_dcm.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_DCM)	+= msm8974-v2-2-rhine_honami_dcm.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_KDDI)	+= msm8974-v1-rhine_honami_kddi.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_KDDI)	+= msm8974-v2-rhine_honami_kddi.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_KDDI)	+= msm8974-v2-2-rhine_honami_kddi.dtb
    dtb-$(CONFIG_MACH_SONY_HONAMI_ROW)	+= msm8974-v1-rhine_honami_row.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_ROW)	+= msm8974-v2-rhine_honami_row.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_ROW)	+= msm8974-v2-2-rhine_honami_row.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_BRAZIL)+= msm8974-v2-rhine_honami_brazil.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_BRAZIL)+= msm8974-v2-2-rhine_honami_brazil.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_CMCC)  += msm8974-v1-rhine_honami_cmcc.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_CMCC)  += msm8974-v2-rhine_honami_cmcc.dtb
-   dtb-$(CONFIG_MACH_SONY_HONAMI_CMCC)  += msm8974-v2-2-rhine_honami_cmcc.dtb
+   dtb-$(CONFIG_MACH_SONY_HONAMI_ROW)	+= msm8974-v2.0-1-rhine_honami_row.dtb
+   dtb-$(CONFIG_MACH_SONY_HONAMI_ROW)	+= msm8974-v2.2-rhine_honami_row.dtb
+   dtb-$(CONFIG_MACH_SONY_HONAMI_TMOUS) += msm8974-v1-rhine_honami_tmous.dtb
+   dtb-$(CONFIG_MACH_SONY_HONAMI_TMOUS) += msm8974-v2.0-1-rhine_honami_tmous.dtb
+   dtb-$(CONFIG_MACH_SONY_HONAMI_TMOUS) += msm8974-v2.2-rhine_honami_tmous.dtb
+   dtb-$(CONFIG_MACH_SONY_HONAMI_BRAZIL)+= msm8974-v2.0-1-rhine_honami_brazil.dtb
+   dtb-$(CONFIG_MACH_SONY_HONAMI_BRAZIL)+= msm8974-v2.2-rhine_honami_brazil.dtb
    dtb-$(CONFIG_MACH_SONY_TOGARI_ROW)	+= msm8974-v1-rhine_togari_row.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_ROW)	+= msm8974-v2-rhine_togari_row.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_ROW)	+= msm8974-v2-2-rhine_togari_row.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_BRAZIL)+= msm8974-v2-rhine_togari_brazil.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_BRAZIL)+= msm8974-v2-2-rhine_togari_brazil.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_WINDY)	+= apq8074-v2-rhine_togari_windy.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_WINDY)	+= apq8074-v2-2-rhine_togari_windy.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_KDDI)	+= msm8974-v2-rhine_togari_kddi.dtb
-   dtb-$(CONFIG_MACH_SONY_TOGARI_KDDI)	+= msm8974-v2-2-rhine_togari_kddi.dtb
-   dtb-$(CONFIG_MACH_SONY_AMAMI_ROW)	+= msm8974-v2-rhine_amami_row.dtb
-   dtb-$(CONFIG_MACH_SONY_AMAMI_ROW)	+= msm8974-v2-2-rhine_amami_row.dtb
-   dtb-$(CONFIG_MACH_SONY_AMAMI_DCM)	+= msm8974-v2-rhine_amami_dcm.dtb
-   dtb-$(CONFIG_MACH_SONY_AMAMI_DCM)	+= msm8974-v2-2-rhine_amami_dcm.dtb
+   dtb-$(CONFIG_MACH_SONY_TOGARI_ROW)	+= msm8974-v2.0-1-rhine_togari_row.dtb
+   dtb-$(CONFIG_MACH_SONY_TOGARI_ROW)	+= msm8974-v2.2-rhine_togari_row.dtb
+   dtb-$(CONFIG_MACH_SONY_TOGARI_BRAZIL)+= msm8974-v2.0-1-rhine_togari_brazil.dtb
+   dtb-$(CONFIG_MACH_SONY_TOGARI_BRAZIL)+= msm8974-v2.2-rhine_togari_brazil.dtb
+   dtb-$(CONFIG_MACH_SONY_TOGARI_WINDY)	+= apq8074-v2.0-1-rhine_togari_windy.dtb
+   dtb-$(CONFIG_MACH_SONY_TOGARI_WINDY)	+= apq8074-v2.2-rhine_togari_windy.dtb
+   dtb-$(CONFIG_MACH_SONY_AMAMI_ROW)	+= msm8974-v2.0-1-rhine_amami_row.dtb
+   dtb-$(CONFIG_MACH_SONY_AMAMI_ROW)	+= msm8974-v2.2-rhine_amami_row.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-liquid.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-mtp.dtb
+        dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pma8084-pm8941-mtp.dtb
 
 # APQ8084
    zreladdr-$(CONFIG_ARCH_APQ8084)	:= 0x00008000
@@ -104,15 +95,24 @@ endif
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-fluid.dtb
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v1-cdp.dtb
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v1-mtp.dtb
-        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v1-qrd.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v1-qrd-evt.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v1-qrd-dvt.dtb
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v2-cdp.dtb
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v2-mtp.dtb
-        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v2-qrd.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v2-qrd-evt.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v2-qrd-dvt.dtb
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8926-cdp.dtb
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8926-mtp.dtb
         dtb-$(CONFIG_ARCH_MSM8226)	+= msm8926-qrd.dtb
-        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-xpm.dtb
-        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-mtp.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8926-qrd-skug.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v1-qrd-skuf.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= msm8226-v2-qrd-skuf.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-v1-xpm.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-v1-cdp.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-v1-mtp.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-v2-xpm.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-v2-cdp.dtb
+        dtb-$(CONFIG_ARCH_MSM8226)	+= apq8026-v2-mtp.dtb
 
 # FSM9XXX
    zreladdr-$(CONFIG_ARCH_FSM9XXX)	:= 0x10008000
@@ -129,10 +129,16 @@ initrd_phys-$(CONFIG_ARCH_FSM9XXX)	:= 0x12000000
 
 # MSM8610
    zreladdr-$(CONFIG_ARCH_MSM8610)	:= 0x00008000
-        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-cdp.dtb
-        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-mtp.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v1-cdp.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v2-cdp.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v1-mtp.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v2-mtp.dtb
         dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-rumi.dtb
         dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-sim.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v1-qrd-skuaa.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v1-qrd-skuab.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v2-qrd-skuaa.dtb
+        dtb-$(CONFIG_ARCH_MSM8610)	+= msm8610-v2-qrd-skuab.dtb
 
 # MSMSAMARIUM
    zreladdr-$(CONFIG_ARCH_MSMSAMARIUM)	:= 0x00008000

@@ -16,9 +16,10 @@
 		reg = <0xfc322000 0x1000>,
 		      <0xfc37c000 0x3000>;
 		reg-names = "tmc-base", "bam-base";
+		interrupts = <0 166 0>;
+		interrupt-names = "byte-cntr-irq";
 
-		qcom,memory-reservation-type = "EBI1";
-		qcom,memory-reservation-size = <0x100000>; /* 1M EBI1 buffer */
+		qcom,memory-size = <0x100000>;
 
 		coresight-id = <0>;
 		coresight-name = "coresight-tmc-etr";
@@ -39,6 +40,11 @@
 
 		qcom,vdd-voltage-level = <2950000 2950000>;
 		qcom,vdd-current-level = <9000 800000>;
+
+		vdd-io-supply = <&pm8226_l21>;
+
+		qcom,vdd-io-voltage-level = <2950000 2950000>;
+		qcom,vdd-io-current-level = <6 22000>;
 	};
 
 	replicator: replicator@fc31c000 {
@@ -365,13 +371,24 @@
 		compatible = "qcom,coresight-hwevent";
 		reg = <0xfd828018 0x80>,
 		      <0xf9011080 0x80>,
-		      <0xfd4ab160 0x80>;
-		reg-names = "mmss-mux", "apcs-mux", "ppss-mux";
+		      <0xfd4ab160 0x80>,
+		      <0xfc401600 0x80>;
+		reg-names = "mmss-mux", "apcs-mux", "ppss-mux", "gcc-mux";
 
 		coresight-id = <29>;
 		coresight-name = "coresight-hwevent";
 		coresight-nr-inports = <0>;
 
 		qcom,hwevent-clks = "core_mmss_clk";
+	};
+
+	fuse: fuse@fc4be024 {
+		compatible = "arm,coresight-fuse";
+		reg = <0xfc4be024 0x8>;
+		reg-names = "fuse-base";
+
+		coresight-id = <30>;
+		coresight-name = "coresight-fuse";
+		coresight-nr-inports = <0>;
 	};
 };

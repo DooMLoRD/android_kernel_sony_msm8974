@@ -71,6 +71,24 @@ enum {
 };
 
 enum {
+	PLATFORM_SUBTYPE_QRD = 0x0,
+	PLATFORM_SUBTYPE_SKUAA = 0x1,
+	PLATFORM_SUBTYPE_SKUF = 0x2,
+	PLATFORM_SUBTYPE_SKUAB = 0x3,
+	PLATFORM_SUBTYPE_SKUG = 0x5,
+	PLATFORM_SUBTYPE_QRD_INVALID,
+};
+
+const char *qrd_hw_platform_subtype[] = {
+	[PLATFORM_SUBTYPE_QRD] = "QRD",
+	[PLATFORM_SUBTYPE_SKUAA] = "SKUAA",
+	[PLATFORM_SUBTYPE_SKUF] = "SKUF",
+	[PLATFORM_SUBTYPE_SKUAB] = "SKUAB",
+	[PLATFORM_SUBTYPE_SKUG] = "SKUG",
+	[PLATFORM_SUBTYPE_QRD_INVALID] = "INVALID",
+};
+
+enum {
 	PLATFORM_SUBTYPE_UNKNOWN = 0x0,
 	PLATFORM_SUBTYPE_CHARM = 0x1,
 	PLATFORM_SUBTYPE_STRANGE = 0x2,
@@ -282,6 +300,24 @@ static enum msm_cpu cpu_of_id[] = {
 	[185] = MSM_CPU_8974,
 	[186] = MSM_CPU_8974,
 
+	/* 8974AA IDs */
+	[208] = MSM_CPU_8974PRO_AA,
+	[211] = MSM_CPU_8974PRO_AA,
+	[214] = MSM_CPU_8974PRO_AA,
+	[217] = MSM_CPU_8974PRO_AA,
+
+	/* 8974AB IDs */
+	[209] = MSM_CPU_8974PRO_AB,
+	[212] = MSM_CPU_8974PRO_AB,
+	[215] = MSM_CPU_8974PRO_AB,
+	[218] = MSM_CPU_8974PRO_AB,
+
+	/* 8974AC IDs */
+	[194] = MSM_CPU_8974PRO_AC,
+	[210] = MSM_CPU_8974PRO_AC,
+	[213] = MSM_CPU_8974PRO_AC,
+	[216] = MSM_CPU_8974PRO_AC,
+
 	/* 8625 IDs */
 	[127] = MSM_CPU_8625,
 	[128] = MSM_CPU_8625,
@@ -330,6 +366,12 @@ static enum msm_cpu cpu_of_id[] = {
 	[199] = MSM_CPU_8226,
 	[200] = MSM_CPU_8226,
 	[205] = MSM_CPU_8226,
+	[219] = MSM_CPU_8226,
+	[220] = MSM_CPU_8226,
+	[221] = MSM_CPU_8226,
+	[222] = MSM_CPU_8226,
+	[223] = MSM_CPU_8226,
+	[224] = MSM_CPU_8226,
 
 	/* 8092 IDs */
 	[146] = MSM_CPU_8092,
@@ -629,9 +671,18 @@ socinfo_show_platform_subtype(struct sys_device *dev,
 	}
 
 	hw_subtype = socinfo_get_platform_subtype();
+	if (HW_PLATFORM_QRD == socinfo_get_platform_type()) {
+		if (hw_subtype >= PLATFORM_SUBTYPE_QRD_INVALID) {
+			pr_err("%s: Invalid hardware platform sub type for qrd found\n",
+				__func__);
+			hw_subtype = PLATFORM_SUBTYPE_QRD_INVALID;
+		}
+		return snprintf(buf, PAGE_SIZE, "%-.32s\n",
+					qrd_hw_platform_subtype[hw_subtype]);
+	}
 	if (hw_subtype >= PLATFORM_SUBTYPE_INVALID) {
 		pr_err("%s: Invalid hardware platform sub type found\n",
-								   __func__);
+			   __func__);
 		hw_subtype = PLATFORM_SUBTYPE_UNKNOWN;
 	}
 	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
@@ -746,6 +797,16 @@ msm_get_platform_subtype(struct device *dev,
 {
 	uint32_t hw_subtype;
 	hw_subtype = socinfo_get_platform_subtype();
+	if (HW_PLATFORM_QRD == socinfo_get_platform_type()) {
+		if (hw_subtype >= PLATFORM_SUBTYPE_QRD_INVALID) {
+			pr_err("%s: Invalid hardware platform sub type for qrd found\n",
+				__func__);
+			hw_subtype = PLATFORM_SUBTYPE_QRD_INVALID;
+		}
+		return snprintf(buf, PAGE_SIZE, "%-.32s\n",
+					qrd_hw_platform_subtype[hw_subtype]);
+	}
+
 	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
 		hw_platform_subtype[hw_subtype]);
 }
@@ -974,56 +1035,64 @@ static int __init socinfo_init_sysdev(void)
 
 	msm_soc_device = soc_device_to_device(soc_dev);
 	populate_soc_sysfs_files(msm_soc_device);
+
 	err = sysdev_class_register(&soc_sysdev_class);
 	if (err) {
 		pr_err("%s: sysdev_class_register fail (%d)\n",
 		       __func__, err);
-		return err;
+		goto socinfo_init_err;
 	}
+
 	err = sysdev_register(&soc_sys_device);
 	if (err) {
 		pr_err("%s: sysdev_register fail (%d)\n",
 		       __func__, err);
-		return err;
+		goto socinfo_init_err;
 	}
+
 	socinfo_create_files(&soc_sys_device, socinfo_v1_files,
 				ARRAY_SIZE(socinfo_v1_files));
 	if (socinfo->v1.format < 2)
-		return err;
+		goto socinfo_init_err;
+
 	socinfo_create_files(&soc_sys_device, socinfo_v2_files,
 				ARRAY_SIZE(socinfo_v2_files));
 
 	if (socinfo->v1.format < 3)
-		return err;
+		goto socinfo_init_err;
 
 	socinfo_create_files(&soc_sys_device, socinfo_v3_files,
 				ARRAY_SIZE(socinfo_v3_files));
 
 	if (socinfo->v1.format < 4)
-		return err;
+		goto socinfo_init_err;
 
 	socinfo_create_files(&soc_sys_device, socinfo_v4_files,
 				ARRAY_SIZE(socinfo_v4_files));
 
 	if (socinfo->v1.format < 5)
-		return err;
+		goto socinfo_init_err;
 
 	socinfo_create_files(&soc_sys_device, socinfo_v5_files,
 				ARRAY_SIZE(socinfo_v5_files));
 
 	if (socinfo->v1.format < 6)
-		return err;
+		goto socinfo_init_err;
 
 	socinfo_create_files(&soc_sys_device, socinfo_v6_files,
 				ARRAY_SIZE(socinfo_v6_files));
 
 	if (socinfo->v1.format < 7)
-		return err;
+		goto socinfo_init_err;
 
 	socinfo_create_files(&soc_sys_device, socinfo_v7_files,
 				ARRAY_SIZE(socinfo_v7_files));
 
 	return 0;
+
+socinfo_init_err:
+	 kfree(soc_dev_attr);
+         return err;
 }
 
 arch_initcall(socinfo_init_sysdev);

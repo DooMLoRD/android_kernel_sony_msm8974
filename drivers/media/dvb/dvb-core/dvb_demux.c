@@ -128,6 +128,20 @@ static const struct dvb_dmx_video_patterns h264_non_idr = {
 	DMX_IDX_H264_NON_IDR_START
 };
 
+static const struct dvb_dmx_video_patterns h264_non_access_unit_del = {
+	{0x00, 0x00, 0x01, 0x09},
+	{0xFF, 0xFF, 0xFF, 0x1F},
+	4,
+	DMX_IDX_H264_ACCESS_UNIT_DEL
+};
+
+static const struct dvb_dmx_video_patterns h264_non_sei = {
+	{0x00, 0x00, 0x01, 0x06},
+	{0xFF, 0xFF, 0xFF, 0x1F},
+	4,
+	DMX_IDX_H264_SEI
+};
+
 static const struct dvb_dmx_video_patterns vc1_seq_hdr = {
 	{0x00, 0x00, 0x01, 0x0F},
 	{0xFF, 0xFF, 0xFF, 0xFF},
@@ -1791,6 +1805,12 @@ const struct dvb_dmx_video_patterns *dvb_dmx_get_pattern(u64 dmx_idx_pattern)
 	case DMX_IDX_H264_NON_IDR_START:
 		return &h264_non_idr;
 
+	case DMX_IDX_H264_ACCESS_UNIT_DEL:
+		return &h264_non_access_unit_del;
+
+	case DMX_IDX_H264_SEI:
+		return &h264_non_sei;
+
 	case DMX_IDX_VC1_SEQ_HEADER:
 		return &vc1_seq_hdr;
 
@@ -1893,7 +1913,7 @@ static void dvb_dmx_init_idx_state(struct dvb_demux_feed *feed)
 		(feed->idx_params.types &
 		 (DMX_IDX_H264_IDR_START | DMX_IDX_H264_IDR_END |
 		  DMX_IDX_H264_NON_IDR_END |
-		  DMX_IDX_H264_FIRST_SPS_FRAME_END |
+		  DMX_IDX_H264_FIRST_SPS_FRAME_START |
 		  DMX_IDX_H264_FIRST_SPS_FRAME_END))) {
 		feed->patterns[feed->pattern_num] =
 			dvb_dmx_get_pattern(DMX_IDX_H264_IDR_START);
@@ -1905,10 +1925,24 @@ static void dvb_dmx_init_idx_state(struct dvb_demux_feed *feed)
 		(feed->idx_params.types &
 		 (DMX_IDX_H264_NON_IDR_START | DMX_IDX_H264_NON_IDR_END |
 		  DMX_IDX_H264_IDR_END |
-		  DMX_IDX_H264_FIRST_SPS_FRAME_END |
+		  DMX_IDX_H264_FIRST_SPS_FRAME_START |
 		  DMX_IDX_H264_FIRST_SPS_FRAME_END))) {
 		feed->patterns[feed->pattern_num] =
 			dvb_dmx_get_pattern(DMX_IDX_H264_NON_IDR_START);
+		feed->pattern_num++;
+	}
+
+	if ((feed->pattern_num < DVB_DMX_MAX_SEARCH_PATTERN_NUM) &&
+		(feed->idx_params.types & DMX_IDX_H264_ACCESS_UNIT_DEL)) {
+		feed->patterns[feed->pattern_num] =
+			dvb_dmx_get_pattern(DMX_IDX_H264_ACCESS_UNIT_DEL);
+		feed->pattern_num++;
+	}
+
+	if ((feed->pattern_num < DVB_DMX_MAX_SEARCH_PATTERN_NUM) &&
+		(feed->idx_params.types & DMX_IDX_H264_SEI)) {
+		feed->patterns[feed->pattern_num] =
+			dvb_dmx_get_pattern(DMX_IDX_H264_SEI);
 		feed->pattern_num++;
 	}
 
@@ -2262,19 +2296,36 @@ static int dmx_ts_set_secure_mode(struct dmx_ts_feed *feed,
 {
 	struct dvb_demux_feed *dvbdmxfeed = (struct dvb_demux_feed *)feed;
 	struct dvb_demux *dvbdmx = dvbdmxfeed->demux;
+
+	if (mutex_lock_interruptible(&dvbdmx->mutex))
+		return -ERESTARTSYS;
+
+	if (dvbdmxfeed->state == DMX_STATE_GO) {
+		mutex_unlock(&dvbdmx->mutex);
+		return -EBUSY;
+	}
+
+	dvbdmxfeed->secure_mode = *secure_mode;
+	mutex_unlock(&dvbdmx->mutex);
+	return 0;
+}
+
+static int dmx_ts_set_cipher_ops(struct dmx_ts_feed *feed,
+				struct dmx_cipher_operations *cipher_ops)
+{
+	struct dvb_demux_feed *dvbdmxfeed = (struct dvb_demux_feed *)feed;
+	struct dvb_demux *dvbdmx = dvbdmxfeed->demux;
 	int ret = 0;
 
-	mutex_lock(&dvbdmx->mutex);
+	if (mutex_lock_interruptible(&dvbdmx->mutex))
+		return -ERESTARTSYS;
 
 	if ((dvbdmxfeed->state == DMX_STATE_GO) &&
-		dvbdmxfeed->demux->set_secure_mode) {
-		ret = dvbdmxfeed->demux->set_secure_mode(dvbdmxfeed,
-			secure_mode);
-		if (!ret)
-			dvbdmxfeed->secure_mode = *secure_mode;
-	} else {
-		dvbdmxfeed->secure_mode = *secure_mode;
-	}
+		dvbdmx->set_cipher_op)
+		ret = dvbdmx->set_cipher_op(dvbdmxfeed, cipher_ops);
+
+	if (!ret)
+		dvbdmxfeed->cipher_ops = *cipher_ops;
 
 	mutex_unlock(&dvbdmx->mutex);
 	return ret;
@@ -2481,6 +2532,7 @@ static int dvbdmx_allocate_ts_feed(struct dmx_demux *dmx,
 	(*ts_feed)->data_ready_cb = dmx_ts_feed_data_ready_cb;
 	(*ts_feed)->notify_data_read = NULL;
 	(*ts_feed)->set_secure_mode = dmx_ts_set_secure_mode;
+	(*ts_feed)->set_cipher_ops = dmx_ts_set_cipher_ops;
 	(*ts_feed)->oob_command = dvbdmx_ts_feed_oob_cmd;
 	(*ts_feed)->get_scrambling_bits = dvbdmx_ts_get_scrambling_bits;
 	(*ts_feed)->ts_insertion_init = NULL;
@@ -2724,13 +2776,36 @@ static int dmx_section_set_secure_mode(struct dmx_section_feed *feed,
 
 	mutex_lock(&dvbdmx->mutex);
 
-	dvbdmxfeed->secure_mode = *secure_mode;
-	if ((dvbdmxfeed->state == DMX_STATE_GO) &&
-		dvbdmxfeed->demux->set_secure_mode)
-		dvbdmxfeed->demux->set_secure_mode(dvbdmxfeed, secure_mode);
+	if (dvbdmxfeed->state == DMX_STATE_GO) {
+		mutex_unlock(&dvbdmx->mutex);
+		return -EBUSY;
+	}
 
+	dvbdmxfeed->secure_mode = *secure_mode;
 	mutex_unlock(&dvbdmx->mutex);
 	return 0;
+}
+
+static int dmx_section_set_cipher_ops(struct dmx_section_feed *feed,
+				struct dmx_cipher_operations *cipher_ops)
+{
+	struct dvb_demux_feed *dvbdmxfeed = (struct dvb_demux_feed *)feed;
+	struct dvb_demux *dvbdmx = dvbdmxfeed->demux;
+	int ret = 0;
+
+	if (mutex_lock_interruptible(&dvbdmx->mutex))
+		return -ERESTARTSYS;
+
+	if ((dvbdmxfeed->state == DMX_STATE_GO) &&
+		dvbdmx->set_cipher_op) {
+		ret = dvbdmx->set_cipher_op(dvbdmxfeed, cipher_ops);
+	}
+
+	if (!ret)
+		dvbdmxfeed->cipher_ops = *cipher_ops;
+
+	mutex_unlock(&dvbdmx->mutex);
+	return ret;
 }
 
 static int dmx_section_feed_release_filter(struct dmx_section_feed *feed,
@@ -2875,6 +2950,7 @@ static int dvbdmx_allocate_section_feed(struct dmx_demux *demux,
 	(*feed)->data_ready_cb = dmx_section_feed_data_ready_cb;
 	(*feed)->notify_data_read = NULL;
 	(*feed)->set_secure_mode = dmx_section_set_secure_mode;
+	(*feed)->set_cipher_ops = dmx_section_set_cipher_ops;
 	(*feed)->oob_command = dvbdmx_section_feed_oob_cmd;
 	(*feed)->get_scrambling_bits = dvbdmx_section_get_scrambling_bits;
 
@@ -2939,8 +3015,10 @@ static int dvbdmx_write(struct dmx_demux *demux, const char *buf, size_t count)
 {
 	struct dvb_demux *dvbdemux = (struct dvb_demux *)demux;
 
-	if ((!demux->frontend) || (demux->frontend->source != DMX_MEMORY_FE))
+	if (!demux->frontend || !buf || demux->dvr_input_protected ||
+		(demux->frontend->source != DMX_MEMORY_FE)) {
 		return -EINVAL;
+	}
 
 	dvb_dmx_swfilter_format(dvbdemux, buf, count, dvbdemux->tsp_format);
 

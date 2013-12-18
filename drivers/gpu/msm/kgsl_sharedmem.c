@@ -605,7 +605,7 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 
 	/*
 	 * Allocate space to store the list of pages to send to vmap.
-	 * This is an array of pointers so we can t rack 1024 pages per page
+	 * This is an array of pointers so we can track 1024 pages per page
 	 * of allocation.  Since allocations can be as large as the user dares,
 	 * we have to use the kmalloc/vmalloc trick here to make sure we can
 	 * get the memory we need.

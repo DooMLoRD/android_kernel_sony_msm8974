@@ -14,6 +14,7 @@
  * SPI driver for Qualcomm MSM platforms
  *
  */
+
 #include <linux/version.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -651,6 +652,8 @@ static void msm_spi_set_spi_config(struct msm_spi *dd, int bpw)
 	if (dd->qup_ver == SPI_QUP_VERSION_NONE)
 		/* flags removed from SPI_CONFIG in QUP version-2 */
 		msm_spi_set_bpw_and_no_io_flags(dd, &spi_config, bpw-1);
+	else if (dd->mode == SPI_BAM_MODE)
+		spi_config |= SPI_CFG_INPUT_FIRST;
 
 	/*
 	 * HS_MODE improves signal stability for spi-clk high rates
@@ -715,6 +718,73 @@ static void msm_spi_set_mx_counts(struct msm_spi *dd, u32 n_words)
 			writel_relaxed(0, dd->base + SPI_MX_OUTPUT_COUNT);
 		}
 	}
+}
+
+static int msm_spi_bam_pipe_disconnect(struct msm_spi *dd,
+						struct msm_spi_bam_pipe  *pipe)
+{
+	int ret = sps_disconnect(pipe->handle);
+	if (ret) {
+		dev_dbg(dd->dev, "%s disconnect bam %s pipe failed\n",
+							__func__, pipe->name);
+		return ret;
+	}
+	return 0;
+}
+
+static int msm_spi_bam_pipe_connect(struct msm_spi *dd,
+		struct msm_spi_bam_pipe  *pipe, struct sps_connect *config)
+{
+	int ret;
+	struct sps_register_event event  = {
+		.mode      = SPS_TRIGGER_WAIT,
+		.options   = SPS_O_EOT,
+		.xfer_done = &dd->transfer_complete,
+	};
+
+	ret = sps_connect(pipe->handle, config);
+	if (ret) {
+		dev_err(dd->dev, "%s: sps_connect(%s:0x%p):%d",
+				__func__, pipe->name, pipe->handle, ret);
+		return ret;
+	}
+
+	ret = sps_register_event(pipe->handle, &event);
+	if (ret) {
+		dev_err(dd->dev, "%s sps_register_event(hndl:0x%p %s):%d",
+				__func__, pipe->handle, pipe->name, ret);
+		msm_spi_bam_pipe_disconnect(dd, pipe);
+		return ret;
+	}
+
+	pipe->teardown_required = true;
+	return 0;
+}
+
+
+static void msm_spi_bam_pipe_flush(struct msm_spi *dd,
+					enum msm_spi_pipe_direction pipe_dir)
+{
+	struct msm_spi_bam_pipe *pipe = (pipe_dir == SPI_BAM_CONSUMER_PIPE) ?
+					(&dd->bam.prod) : (&dd->bam.cons);
+	struct sps_connect           config  = pipe->config;
+	int    ret;
+
+	ret = msm_spi_bam_pipe_disconnect(dd, pipe);
+	if (ret)
+		return;
+
+	ret = msm_spi_bam_pipe_connect(dd, pipe, &config);
+	if (ret)
+		return;
+}
+
+static void msm_spi_bam_flush(struct msm_spi *dd)
+{
+	dev_dbg(dd->dev, "%s flushing bam for recovery\n" , __func__);
+
+	msm_spi_bam_pipe_flush(dd, SPI_BAM_CONSUMER_PIPE);
+	msm_spi_bam_pipe_flush(dd, SPI_BAM_PRODUCER_PIPE);
 }
 
 /**
@@ -1356,9 +1426,10 @@ static void msm_spi_dmov_unmap_buffers(struct msm_spi *dd)
 				dma_coherent_post_ops();
 				memcpy(dd->read_buf + offset, dd->rx_padding,
 				       dd->rx_unaligned_len);
-				memcpy(dd->cur_transfer->rx_buf,
-				       dd->read_buf + prev_xfr->len,
-				       dd->cur_transfer->len);
+				if (dd->cur_transfer->rx_buf)
+					memcpy(dd->cur_transfer->rx_buf,
+					       dd->read_buf + prev_xfr->len,
+					       dd->cur_transfer->len);
 			}
 		}
 		kfree(dd->temp_buf);
@@ -1455,7 +1526,7 @@ msm_spi_use_dma(struct msm_spi *dd, struct spi_transfer *tr, u8 bpw)
 		}
 
 		if (tr->cs_change &&
-		   ((bpw != 8) || (bpw != 16) || (bpw != 32)))
+		   ((bpw != 8) && (bpw != 16) && (bpw != 32)))
 			return false;
 	}
 
@@ -1678,6 +1749,8 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 					msm_dmov_flush(dd->tx_dma_chan, 1);
 					msm_dmov_flush(dd->rx_dma_chan, 1);
 				}
+				if (dd->mode == SPI_BAM_MODE)
+					msm_spi_bam_flush(dd);
 				break;
 		}
 	} while (msm_spi_dm_send_next(dd));
@@ -2309,7 +2382,7 @@ static void msm_spi_bam_pipe_teardown(struct msm_spi *dd,
 	if (!pipe->teardown_required)
 		return;
 
-	sps_disconnect(pipe->handle);
+	msm_spi_bam_pipe_disconnect(dd, pipe);
 	dma_free_coherent(dd->dev, pipe->config.desc.size,
 		pipe->config.desc.base, pipe->config.desc.phys_base);
 	sps_free_endpoint(pipe->handle);
@@ -2322,13 +2395,13 @@ static int msm_spi_bam_pipe_init(struct msm_spi *dd,
 {
 	int rc = 0;
 	struct sps_pipe *pipe_handle;
-	struct sps_register_event event = {0};
 	struct msm_spi_bam_pipe *pipe = (pipe_dir == SPI_BAM_CONSUMER_PIPE) ?
 					(&dd->bam.prod) : (&dd->bam.cons);
 	struct sps_connect *pipe_conf = &pipe->config;
 
+	pipe->name   = (pipe_dir == SPI_BAM_CONSUMER_PIPE) ? "cons" : "prod";
 	pipe->handle = 0;
-	pipe_handle = sps_alloc_endpoint();
+	pipe_handle  = sps_alloc_endpoint();
 	if (!pipe_handle) {
 		dev_err(dd->dev, "%s: Failed to allocate BAM endpoint\n"
 								, __func__);
@@ -2370,32 +2443,16 @@ static int msm_spi_bam_pipe_init(struct msm_spi *dd,
 		rc = -ENOMEM;
 		goto config_err;
 	}
-
+	/* zero descriptor FIFO for convenient debugging of first descs */
 	memset(pipe_conf->desc.base, 0x00, pipe_conf->desc.size);
 
-	rc = sps_connect(pipe_handle, pipe_conf);
-	if (rc) {
-		dev_err(dd->dev, "%s: Failed to connect BAM pipe", __func__);
-		goto connect_err;
-	}
-
-	event.mode      = SPS_TRIGGER_WAIT;
-	event.options   = SPS_O_EOT;
-	event.xfer_done = &dd->transfer_complete;
-	event.user      = (void *)dd;
-	rc = sps_register_event(pipe_handle, &event);
-	if (rc) {
-		dev_err(dd->dev, "%s: Failed to register BAM EOT event",
-			__func__);
-		goto register_err;
-	}
-
 	pipe->handle = pipe_handle;
-	pipe->teardown_required = true;
+	rc = msm_spi_bam_pipe_connect(dd, pipe, pipe_conf);
+	if (rc)
+		goto connect_err;
+
 	return 0;
 
-register_err:
-	sps_disconnect(pipe_handle);
 connect_err:
 	dma_free_coherent(dd->dev, pipe_conf->desc.size,
 		pipe_conf->desc.base, pipe_conf->desc.phys_base);
@@ -2602,10 +2659,10 @@ static int __init msm_spi_dt_to_pdata_populate(struct platform_device *pdev,
 }
 
 /**
- * msm_spi_dt_to_pdata: copy device-tree data to platfrom data struct
+ * msm_spi_dt_to_pdata: create pdata and read gpio config from device tree
  */
-struct msm_spi_platform_data *
-__init msm_spi_dt_to_pdata(struct platform_device *pdev)
+struct msm_spi_platform_data * __init msm_spi_dt_to_pdata(
+			struct platform_device *pdev, struct msm_spi *dd)
 {
 	struct msm_spi_platform_data *pdata;
 
@@ -2616,22 +2673,36 @@ __init msm_spi_dt_to_pdata(struct platform_device *pdev)
 	} else {
 		struct msm_spi_dt_to_pdata_map map[] = {
 		{"spi-max-frequency",
-			&pdata->max_clock_speed,         DT_SGST, DT_U32,  0},
+			&pdata->max_clock_speed,         DT_SGST, DT_U32,   0},
 		{"qcom,infinite-mode",
-			&pdata->infinite_mode,           DT_OPT,  DT_U32,  0},
+			&pdata->infinite_mode,           DT_OPT,  DT_U32,   0},
 		{"qcom,active-only",
-			&pdata->active_only,             DT_OPT,  DT_BOOL, 0},
+			&pdata->active_only,             DT_OPT,  DT_BOOL,  0},
 		{"qcom,master-id",
-			&pdata->master_id,               DT_SGST, DT_U32,  0},
+			&pdata->master_id,               DT_SGST, DT_U32,   0},
 		{"qcom,ver-reg-exists",
-			&pdata->ver_reg_exists,          DT_OPT,  DT_BOOL, 0},
+			&pdata->ver_reg_exists,          DT_OPT,  DT_BOOL,  0},
 		{"qcom,use-bam",
-			&pdata->use_bam,                 DT_OPT,  DT_BOOL, 0},
+			&pdata->use_bam,                 DT_OPT,  DT_BOOL,  0},
 		{"qcom,bam-consumer-pipe-index",
-			&pdata->bam_consumer_pipe_index, DT_OPT,  DT_U32,  0},
+			&pdata->bam_consumer_pipe_index, DT_OPT,  DT_U32,   0},
 		{"qcom,bam-producer-pipe-index",
-			&pdata->bam_producer_pipe_index, DT_OPT,  DT_U32,  0},
-		{NULL,  NULL,                            0,       0,       0},
+			&pdata->bam_producer_pipe_index, DT_OPT,  DT_U32,   0},
+		{"qcom,gpio-clk",
+			&dd->spi_gpios[0],               DT_OPT,  DT_GPIO, -1},
+		{"qcom,gpio-miso",
+			&dd->spi_gpios[1],               DT_OPT,  DT_GPIO, -1},
+		{"qcom,gpio-mosi",
+			&dd->spi_gpios[2],               DT_OPT,  DT_GPIO, -1},
+		{"qcom,gpio-cs0",
+			&dd->cs_gpios[0].gpio_num,       DT_OPT,  DT_GPIO, -1},
+		{"qcom,gpio-cs1",
+			&dd->cs_gpios[1].gpio_num,       DT_OPT,  DT_GPIO, -1},
+		{"qcom,gpio-cs2",
+			&dd->cs_gpios[2].gpio_num,       DT_OPT,  DT_GPIO, -1},
+		{"qcom,gpio-cs3",
+			&dd->cs_gpios[3].gpio_num,       DT_OPT,  DT_GPIO, -1},
+		{NULL,  NULL,                            0,       0,        0},
 		};
 
 		if (msm_spi_dt_to_pdata_populate(pdev, pdata, map)) {
@@ -2712,7 +2783,6 @@ static int __init msm_spi_probe(struct platform_device *pdev)
 	int                     clk_enabled = 0;
 	int                     pclk_enabled = 0;
 	struct msm_spi_platform_data *pdata;
-	enum of_gpio_flags flags;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(struct msm_spi));
 	if (!master) {
@@ -2732,7 +2802,7 @@ static int __init msm_spi_probe(struct platform_device *pdev)
 	if (pdev->dev.of_node) {
 		dd->qup_ver = SPI_QUP_VERSION_BFAM;
 		master->dev.of_node = pdev->dev.of_node;
-		pdata = msm_spi_dt_to_pdata(pdev);
+		pdata = msm_spi_dt_to_pdata(pdev, dd);
 		if (!pdata) {
 			rc = -ENOMEM;
 			goto err_probe_exit;
@@ -2744,18 +2814,6 @@ static int __init msm_spi_probe(struct platform_device *pdev)
 				"using default bus_num %d\n", pdev->id);
 		else
 			master->bus_num = pdev->id = rc;
-
-		for (i = 0; i < ARRAY_SIZE(spi_rsrcs); ++i) {
-			dd->spi_gpios[i] = of_get_gpio_flags(pdev->dev.of_node,
-								i, &flags);
-		}
-
-		for (i = 0; i < ARRAY_SIZE(spi_cs_rsrcs); ++i) {
-			dd->cs_gpios[i].gpio_num = of_get_named_gpio_flags(
-						pdev->dev.of_node, "cs-gpios",
-						i, &flags);
-			dd->cs_gpios[i].valid = 0;
-		}
 	} else {
 		pdata = pdev->dev.platform_data;
 		dd->qup_ver = SPI_QUP_VERSION_NONE;
@@ -2771,9 +2829,11 @@ static int __init msm_spi_probe(struct platform_device *pdev)
 						i + ARRAY_SIZE(spi_rsrcs));
 			dd->cs_gpios[i].gpio_num = resource ?
 							resource->start : -1;
-			dd->cs_gpios[i].valid = 0;
 		}
 	}
+
+	for (i = 0; i < ARRAY_SIZE(spi_cs_rsrcs); ++i)
+		dd->cs_gpios[i].valid = 0;
 
 	dd->pdata = pdata;
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -3060,7 +3120,7 @@ static int msm_spi_pm_suspend_runtime(struct device *device)
 	msm_spi_disable_irqs(dd);
 	clk_disable_unprepare(dd->clk);
 	clk_disable_unprepare(dd->pclk);
-	if (!dd->pdata->active_only)
+	if (dd->pdata && !dd->pdata->active_only)
 		msm_spi_clk_path_unvote(dd);
 
 	/* Free  the spi clk, miso, mosi, cs gpio */

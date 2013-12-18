@@ -43,12 +43,20 @@ struct hdmi_tx_platform_data {
 	struct dss_module_power power_data[HDMI_TX_MAX_PM];
 };
 
+struct hdmi_audio {
+	int sample_rate;
+	int channel_num;
+	int spkr_alloc;
+	int level_shift;
+	int down_mix;
+};
+
 struct hdmi_tx_ctrl {
 	struct platform_device *pdev;
 	struct hdmi_tx_platform_data pdata;
 	struct mdss_panel_data panel_data;
 
-	int audio_sample_rate;
+	struct hdmi_audio audio_data;
 
 	struct mutex mutex;
 	struct kobject *kobj;
@@ -77,8 +85,8 @@ struct hdmi_tx_ctrl {
 	u8 aksv[5];
 	enum hdmi_hdcp_state hdcp_status;
 
-	u8 spd_vendor_name[8];
-	u8 spd_product_description[16];
+	u8 spd_vendor_name[9];
+	u8 spd_product_description[17];
 
 	struct hdmi_tx_ddc_ctrl ddc_ctrl;
 

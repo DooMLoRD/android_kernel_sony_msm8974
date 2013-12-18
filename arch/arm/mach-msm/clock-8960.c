@@ -1547,7 +1547,7 @@ static struct clk_freq_tbl clk_tbl_sdc[] = {
 	F_END
 };
 
-static CLK_SDC(sdc1_clk, 1, 6,  52000000, 104000000);
+static CLK_SDC(sdc1_clk, 1, 6,  52000000, 208000000);
 static CLK_SDC(sdc2_clk, 2, 5,  52000000, 104000000);
 static CLK_SDC(sdc3_clk, 3, 4, 104000000, 208000000);
 static CLK_SDC(sdc4_clk, 4, 3,  33000000,  67000000);
@@ -3047,7 +3047,7 @@ static int pix_rdi_clk_reset(struct clk *c, enum clk_reset_action action)
 	return branch_reset(&to_pix_rdi_clk(c)->b, action);
 }
 
-static int pix_rdi_clk_list_rate(struct clk *c, unsigned n)
+static long pix_rdi_clk_list_rate(struct clk *c, unsigned n)
 {
 	if (pix_rdi_mux_map[n])
 		return n;

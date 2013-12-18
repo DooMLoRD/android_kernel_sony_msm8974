@@ -11,13 +11,13 @@
  * GNU General Public License for more details.
  */
 
-#include <linux/module.h>
+#include <linux/errno.h>
+#include <linux/hrtimer.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
-#include <linux/errno.h>
-#include <linux/slab.h>
-#include <linux/hrtimer.h>
+#include <linux/module.h>
 #include <linux/of_device.h>
+#include <linux/slab.h>
 #include <linux/spmi.h>
 
 #include <linux/qpnp/vibrator.h>
@@ -88,9 +88,10 @@ int qpnp_vibrator_config(struct qpnp_vib_config *vib_cfg)
 	u8 reg = 0;
 	int rc = -EINVAL, level;
 
-	if (vib_dev == NULL) {
+	if (!vib_dev) {
 		pr_err("%s: vib_dev is NULL\n", __func__);
-		return -ENODEV;
+		rc = -ENODEV;
+		goto gen_err;
 	}
 
 	level = vib_cfg->drive_mV / QPNP_VIB_UV_PER_MV;
@@ -98,11 +99,11 @@ int qpnp_vibrator_config(struct qpnp_vib_config *vib_cfg)
 		if ((level < QPNP_VIB_MIN_LEVEL) ||
 				(level > QPNP_VIB_MAX_LEVEL)) {
 			dev_err(&vib_dev->spmi->dev, "Invalid voltage level\n");
-			return -EINVAL;
+			goto gen_err;
 		}
 	} else {
 		dev_err(&vib_dev->spmi->dev, "Voltage level not specified\n");
-		return -EINVAL;
+		goto gen_err;
 	}
 
 	/* Configure the VTG CTL regiser */
@@ -111,7 +112,7 @@ int qpnp_vibrator_config(struct qpnp_vib_config *vib_cfg)
 	reg |= (level & QPNP_VIB_VTG_SET_MASK);
 	rc = qpnp_vib_write_u8(vib_dev, &reg, QPNP_VIB_VTG_CTL(vib_dev->base));
 	if (rc)
-		return rc;
+		goto gen_err;
 	vib_dev->reg_vtg_ctl = reg;
 
 	/* Configure the VIB ENABLE regiser */
@@ -123,9 +124,10 @@ int qpnp_vibrator_config(struct qpnp_vib_config *vib_cfg)
 		reg |= BIT(vib_cfg->enable_mode - 1);
 	rc = qpnp_vib_write_u8(vib_dev, &reg, QPNP_VIB_EN_CTL(vib_dev->base));
 	if (rc < 0)
-		return rc;
+		goto gen_err;
 	vib_dev->reg_en_ctl = reg;
 
+gen_err:
 	return rc;
 }
 EXPORT_SYMBOL(qpnp_vibrator_config);
@@ -141,23 +143,24 @@ static int qpnp_vib_set(struct qpnp_vib *vib, int on)
 		val |= (vib->vtg_level & QPNP_VIB_VTG_SET_MASK);
 		rc = qpnp_vib_write_u8(vib, &val, QPNP_VIB_VTG_CTL(vib->base));
 		if (rc < 0)
-			return rc;
+			goto gen_err;
 		vib->reg_vtg_ctl = val;
 		val = vib->reg_en_ctl;
 		val |= QPNP_VIB_EN;
 		rc = qpnp_vib_write_u8(vib, &val, QPNP_VIB_EN_CTL(vib->base));
 		if (rc < 0)
-			return rc;
+			goto gen_err;
 		vib->reg_en_ctl = val;
 	} else {
 		val = vib->reg_en_ctl;
 		val &= ~QPNP_VIB_EN;
 		rc = qpnp_vib_write_u8(vib, &val, QPNP_VIB_EN_CTL(vib->base));
 		if (rc < 0)
-			return rc;
+			goto gen_err;
 		vib->reg_en_ctl = val;
 	}
 
+gen_err:
 	return rc;
 }
 
@@ -167,17 +170,17 @@ static void qpnp_vib_enable(struct timed_output_dev *dev, int value)
 					 timed_dev);
 	unsigned long flags;
 
-retry:
-	spin_lock_irqsave(&vib->lock, flags);
-	if (hrtimer_try_to_cancel(&vib->vib_timer) < 0) {
+	while (1) {
+		spin_lock_irqsave(&vib->lock, flags);
+		if (hrtimer_try_to_cancel(&vib->vib_timer) >= 0)
+			break;
 		spin_unlock_irqrestore(&vib->lock, flags);
 		cpu_relax();
-		goto retry;
 	}
 
-	if (value == 0) {
+	if (!value)
 		vib->state = 0;
-	} else {
+	else {
 		vib->state = 1;
 		hrtimer_start(&vib->vib_timer,
 			      ktime_set(value / MSEC_PER_SEC,
@@ -240,12 +243,12 @@ static int __devinit qpnp_vibrator_probe(struct spmi_device *spmi)
 	struct qpnp_vib *vib;
 	const __be32 *temp_dt;
 	struct resource *vib_resource;
-	int rc;
+	int rc = -ENOMEM;
 	u8 val;
 
 	vib = devm_kzalloc(&spmi->dev, sizeof(*vib), GFP_KERNEL);
 	if (!vib)
-		return -ENOMEM;
+		goto gen_err;
 
 	vib->spmi = spmi;
 
@@ -268,19 +271,20 @@ static int __devinit qpnp_vibrator_probe(struct spmi_device *spmi)
 	vib_resource = spmi_get_resource(spmi, 0, IORESOURCE_MEM, 0);
 	if (!vib_resource) {
 		dev_err(&spmi->dev, "Unable to get vibrator base address\n");
-		return -EINVAL;
+		rc = -EINVAL;
+		goto gen_err;
 	}
 	vib->base = vib_resource->start;
 
 	/* save the control registers values */
 	rc = qpnp_vib_read_u8(vib, &val, QPNP_VIB_VTG_CTL(vib->base));
 	if (rc < 0)
-		return rc;
+		goto gen_err;
 	vib->reg_vtg_ctl = val;
 
 	rc = qpnp_vib_read_u8(vib, &val, QPNP_VIB_EN_CTL(vib->base));
 	if (rc < 0)
-		return rc;
+		goto gen_err;
 	vib->reg_en_ctl = val;
 
 	spin_lock_init(&vib->lock);
@@ -297,10 +301,11 @@ static int __devinit qpnp_vibrator_probe(struct spmi_device *spmi)
 
 	rc = timed_output_dev_register(&vib->timed_dev);
 	if (rc < 0)
-		return rc;
+		goto gen_err;
 
 	vib_dev = vib;
 
+gen_err:
 	return rc;
 }
 

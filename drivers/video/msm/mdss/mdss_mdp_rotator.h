@@ -23,6 +23,7 @@ struct mdss_mdp_rotator_session {
 	u32 session_id;
 	u32 ref_cnt;
 	u32 params_changed;
+	int pid;
 
 	u32 format;
 	u32 flags;
@@ -42,8 +43,12 @@ struct mdss_mdp_rotator_session {
 	struct mdss_mdp_data src_buf;
 	struct mdss_mdp_data dst_buf;
 
+	bool use_sync_pt;
 	struct list_head head;
+	struct list_head list;
 	struct mdss_mdp_rotator_session *next;
+	struct msm_sync_pt_data *rot_sync_pt_data;
+	struct work_struct commit_work;
 };
 
 static inline u32 mdss_mdp_get_rotator_dst_format(u32 in_format)
@@ -62,15 +67,13 @@ static inline u32 mdss_mdp_get_rotator_dst_format(u32 in_format)
 	}
 }
 
-struct mdss_mdp_rotator_session *mdss_mdp_rotator_session_alloc(void);
-struct mdss_mdp_rotator_session *mdss_mdp_rotator_session_get(u32 session_id);
-
-int mdss_mdp_rotator_setup(struct mdss_mdp_rotator_session *rot);
-int mdss_mdp_rotator_queue(struct mdss_mdp_rotator_session *rot,
-			   struct mdss_mdp_data *src_data,
-			   struct mdss_mdp_data *dst_data);
-
+int mdss_mdp_rotator_setup(struct msm_fb_data_type *mfd,
+			   struct mdp_overlay *req);
 int mdss_mdp_rotator_release(struct mdss_mdp_rotator_session *rot);
 int mdss_mdp_rotator_release_all(void);
-
+struct msm_sync_pt_data *mdss_mdp_rotator_sync_pt_get(
+	struct msm_fb_data_type *mfd, const struct mdp_buf_sync *buf_sync);
+int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
+			    struct msmfb_overlay_data *req);
+int mdss_mdp_rotator_unset(int ndx);
 #endif /* MDSS_MDP_ROTATOR_H */

@@ -207,7 +207,7 @@ static int prepare_for_reg_access(struct msm_fb_data_type *mfd)
 
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 	if (!pdata) {
-		pr_err("no panel connected\n");
+		pr_err("%s: no panel connected\n", __func__);
 		return -ENODEV;
 	}
 
@@ -230,7 +230,7 @@ static int post_reg_access(struct msm_fb_data_type *mfd)
 
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 	if (!pdata) {
-		pr_err("no panel connected\n");
+		pr_err("%s: no panel connected\n", __func__);
 		return -ENODEV;
 	}
 
@@ -271,7 +271,7 @@ static ssize_t reg_read(struct file *file, const char __user *ubuf,
 
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 	if (!pdata) {
-		pr_err("no panel connected\n");
+		pr_err("%s: no panel connected\n", __func__);
 		goto exit;
 	}
 
@@ -307,7 +307,7 @@ static ssize_t reg_read(struct file *file, const char __user *ubuf,
 	while (isxdigit(*p) || (*p == 'x'))
 		p++;
 
-	pr_err("nbr_bytes_to_read = %d\n", nbr_bytes_to_read);
+	pr_err("%s: nbr_bytes_to_read = %d\n", __func__, nbr_bytes_to_read);
 	i = 0;
 
 	ret = get_parameters(p, params, ARRAY_SIZE(params), &i);
@@ -336,11 +336,13 @@ static ssize_t reg_read(struct file *file, const char __user *ubuf,
 	dsi.dchdr.dlen = i;
 	dsi.payload = params;
 
-	pr_err("dtype=%d, last=%d, vc=%d, ack=%d, wait=%d, dlen=%d\n",
+	pr_err("%s: dtype=%d, last=%d, vc=%d, ack=%d, wait=%d, dlen=%d\n",
+		__func__,
 		dsi.dchdr.dtype, dsi.dchdr.last, dsi.dchdr.vc, dsi.dchdr.ack,
 		dsi.dchdr.wait, dsi.dchdr.dlen);
 	for (j = 0; j < i; j++)
-		pr_err("payload[%d] = 0x%x\n", j, dsi.payload[j]);
+		pr_err("%s: payload[%d] = 0x%x\n",
+			__func__, j, dsi.payload[j]);
 
 	mdss_dsi_cmds_rx(ctrl_pdata, &dsi, nbr_bytes_to_read, 0);
 
@@ -390,7 +392,7 @@ static ssize_t reg_write(struct file *file, const char __user *ubuf,
 
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 	if (!pdata) {
-		pr_err("no panel connected\n");
+		pr_err("%s: no panel connected\n", __func__);
 		goto exit;
 	}
 
@@ -460,11 +462,13 @@ static ssize_t reg_write(struct file *file, const char __user *ubuf,
 	dsi.dchdr.dlen = i;
 	dsi.payload = data;
 
-	pr_err("last = %d, vc = %d, ack = %d, wait = %d, dlen = %d\n",
+	pr_err("%s: last = %d, vc = %d, ack = %d, wait = %d, dlen = %d\n",
+		__func__,
 		dsi.dchdr.last, dsi.dchdr.vc, dsi.dchdr.ack, dsi.dchdr.wait,
 		dsi.dchdr.dlen);
 	for (j = 0; j < i; j++)
-		pr_err("payload[%d] = 0x%x\n", j, dsi.payload[j]);
+		pr_err("%s: payload[%d] = 0x%x\n",
+			__func__, j, dsi.payload[j]);
 	mdss_dsi_cmds_tx(ctrl_pdata, &dsi, 1);
 
 	ret = post_reg_access(mfd);
@@ -540,7 +544,7 @@ void mipi_dsi_panel_create_debugfs(struct msm_fb_data_type *mfd)
 
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 	if (!pdata) {
-		pr_err("no panel connected\n");
+		pr_err("%s: no panel connected\n", __func__);
 		return;
 	}
 

@@ -1,6 +1,7 @@
 /*
    BlueZ - Bluetooth protocol stack for Linux
-   Copyright (c) 2000-2001, 2010-2012, The Linux Foundation. All rights reserved.
+   Copyright (c) 2000-2001, The Linux Foundation. All rights reserved.
+   Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
