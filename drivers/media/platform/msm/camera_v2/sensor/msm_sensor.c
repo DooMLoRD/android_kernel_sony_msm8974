@@ -354,7 +354,7 @@ ERROR1:
 	return rc;
 }
 
-static int32_t msm_sensor_get_dt_gpio_req_tbl(struct device_node *of_node,
+int32_t msm_sensor_get_dt_gpio_req_tbl(struct device_node *of_node,
 	struct msm_camera_gpio_conf *gconf, uint16_t *gpio_array,
 	uint16_t gpio_array_size)
 {
@@ -438,7 +438,7 @@ ERROR1:
 	return rc;
 }
 
-static int32_t msm_sensor_get_dt_gpio_set_tbl(struct device_node *of_node,
+int32_t msm_sensor_get_dt_gpio_set_tbl(struct device_node *of_node,
 	struct msm_camera_gpio_conf *gconf, uint16_t *gpio_array,
 	uint16_t gpio_array_size)
 {
@@ -522,7 +522,7 @@ ERROR1:
 	return rc;
 }
 
-static int32_t msm_sensor_init_gpio_pin_tbl(struct device_node *of_node,
+int32_t msm_sensor_init_gpio_pin_tbl(struct device_node *of_node,
 	struct msm_camera_gpio_conf *gconf, uint16_t *gpio_array,
 	uint16_t gpio_array_size)
 {
@@ -958,7 +958,7 @@ static struct msm_cam_clk_info cam_8610_clk_info[] = {
 };
 
 static struct msm_cam_clk_info cam_8974_clk_info[] = {
-	[SENSOR_CAM_MCLK] = {"cam_src_clk", 19200000},
+	[SENSOR_CAM_MCLK] = {"cam_src_clk", 24000000},
 	[SENSOR_CAM_CLK] = {"cam_clk", 0},
 };
 
@@ -968,6 +968,7 @@ int32_t msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_sensor_power_setting_array *power_setting_array = NULL;
 	struct msm_sensor_power_setting *power_setting = NULL;
 	struct msm_camera_sensor_board_info *data = s_ctrl->sensordata;
+	s_ctrl->stop_setting_valid = 0;
 
 	CDBG("%s:%d\n", __func__, __LINE__);
 	power_setting_array = &s_ctrl->power_setting_array;
@@ -1343,6 +1344,13 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		s_ctrl->power_setting_array =
 			sensor_slave_info.power_setting_array;
 		power_setting_array = &s_ctrl->power_setting_array;
+
+		if (!power_setting_array->size) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
+
 		power_setting_array->power_setting = kzalloc(
 			power_setting_array->size *
 			sizeof(struct msm_sensor_power_setting), GFP_KERNEL);
@@ -1399,6 +1407,12 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		if (copy_from_user(&conf_array,
 			(void *)cdata->cfg.setting,
 			sizeof(struct msm_camera_i2c_reg_setting))) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
+
+		if (!conf_array.size) {
 			pr_err("%s:%d failed\n", __func__, __LINE__);
 			rc = -EFAULT;
 			break;
@@ -1493,6 +1507,12 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		CDBG("%s:slave_addr=0x%x, array_size=%d\n", __func__,
 			write_config.slave_addr,
 			write_config.conf_array.size);
+
+		if (!write_config.conf_array.size) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
 		reg_setting = kzalloc(write_config.conf_array.size *
 			(sizeof(struct msm_camera_i2c_reg_array)), GFP_KERNEL);
 		if (!reg_setting) {
@@ -1544,6 +1564,54 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			rc = -EFAULT;
 			break;
 		}
+		kfree(reg_setting);
+		break;
+	}
+	case CFG_WRITE_I2C_SEQ_ARRAY: {
+		struct msm_camera_i2c_seq_reg_setting conf_array;
+		struct msm_camera_i2c_seq_reg_array *reg_setting = NULL;
+
+		if (s_ctrl->sensor_state != MSM_SENSOR_POWER_UP) {
+			pr_err("%s:%d failed: invalid state %d\n", __func__,
+				__LINE__, s_ctrl->sensor_state);
+			rc = -EFAULT;
+			break;
+		}
+
+		if (copy_from_user(&conf_array,
+			(void *)cdata->cfg.setting,
+			sizeof(struct msm_camera_i2c_seq_reg_setting))) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
+
+		if (!conf_array.size) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
+		reg_setting = kzalloc(conf_array.size *
+			(sizeof(struct msm_camera_i2c_seq_reg_array)),
+			GFP_KERNEL);
+		if (!reg_setting) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -ENOMEM;
+			break;
+		}
+		if (copy_from_user(reg_setting, (void *)conf_array.reg_setting,
+			conf_array.size *
+			sizeof(struct msm_camera_i2c_seq_reg_array))) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			kfree(reg_setting);
+			rc = -EFAULT;
+			break;
+		}
+
+		conf_array.reg_setting = reg_setting;
+		rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->
+			i2c_write_seq_table(s_ctrl->sensor_i2c_client,
+			&conf_array);
 		kfree(reg_setting);
 		break;
 	}
@@ -1605,49 +1673,6 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		break;
 	}
 #endif
-	case CFG_WRITE_I2C_SEQ_ARRAY: {
-		struct msm_camera_i2c_seq_reg_setting conf_array;
-		struct msm_camera_i2c_seq_reg_array *reg_setting = NULL;
-
-		if (s_ctrl->sensor_state != MSM_SENSOR_POWER_UP) {
-			pr_err("%s:%d failed: invalid state %d\n", __func__,
-				__LINE__, s_ctrl->sensor_state);
-			rc = -EFAULT;
-			break;
-		}
-
-		if (copy_from_user(&conf_array,
-			(void *)cdata->cfg.setting,
-			sizeof(struct msm_camera_i2c_seq_reg_setting))) {
-			pr_err("%s:%d failed\n", __func__, __LINE__);
-			rc = -EFAULT;
-			break;
-		}
-
-		reg_setting = kzalloc(conf_array.size *
-			(sizeof(struct msm_camera_i2c_seq_reg_array)),
-			GFP_KERNEL);
-		if (!reg_setting) {
-			pr_err("%s:%d failed\n", __func__, __LINE__);
-			rc = -ENOMEM;
-			break;
-		}
-		if (copy_from_user(reg_setting, (void *)conf_array.reg_setting,
-			conf_array.size *
-			sizeof(struct msm_camera_i2c_seq_reg_array))) {
-			pr_err("%s:%d failed\n", __func__, __LINE__);
-			kfree(reg_setting);
-			rc = -EFAULT;
-			break;
-		}
-
-		conf_array.reg_setting = reg_setting;
-		rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->
-			i2c_write_seq_table(s_ctrl->sensor_i2c_client,
-			&conf_array);
-		kfree(reg_setting);
-		break;
-	}
 
 	case CFG_POWER_UP:
 		if (s_ctrl->sensor_state != MSM_SENSOR_POWER_DOWN) {
@@ -1724,8 +1749,13 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			break;
 		}
 		s_ctrl->stop_setting_valid = 1;
-
 		reg_setting = stop_setting->reg_setting;
+
+		if (!stop_setting->size) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
 		stop_setting->reg_setting = kzalloc(stop_setting->size *
 			(sizeof(struct msm_camera_i2c_reg_array)), GFP_KERNEL);
 		if (!stop_setting->reg_setting) {

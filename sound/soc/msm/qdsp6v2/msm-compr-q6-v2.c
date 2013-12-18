@@ -127,6 +127,7 @@ static void compr_event_handler(uint32_t opcode,
 	int i = 0;
 	int time_stamp_flag = 0;
 	int buffer_length = 0;
+	int stop_playback = 0;
 
 	pr_debug("%s opcode =%08x\n", __func__, opcode);
 	switch (opcode) {
@@ -151,9 +152,15 @@ static void compr_event_handler(uint32_t opcode,
 		/*
 		 * check for underrun
 		 */
+		snd_pcm_stream_lock_irq(substream);
 		if (runtime->status->hw_ptr >= runtime->control->appl_ptr) {
-			pr_err("render stopped");
 			runtime->render_flag |= SNDRV_RENDER_STOPPED;
+			stop_playback = 1;
+		}
+		snd_pcm_stream_unlock_irq(substream);
+
+		if (stop_playback) {
+			pr_err("underrun! render stopped\n");
 			break;
 		}
 
@@ -521,12 +528,14 @@ static int msm_compr_trigger(struct snd_pcm_substream *substream, int cmd)
 			}
 		}
 		atomic_set(&prtd->start, 0);
+		runtime->render_flag &= ~SNDRV_RENDER_STOPPED;
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		pr_debug("SNDRV_PCM_TRIGGER_PAUSE\n");
 		q6asm_cmd_nowait(prtd->audio_client, CMD_PAUSE);
 		atomic_set(&prtd->start, 0);
+		runtime->render_flag &= ~SNDRV_RENDER_STOPPED;
 		break;
 	default:
 		ret = -EINVAL;
@@ -640,7 +649,7 @@ static int compressed_set_volume(struct msm_audio *prtd, uint32_t volume)
 		}
 		if (rc < 0) {
 			pr_err("%s: Send Volume command failed rc=%d\n",
-						__func__, rc);
+				__func__, rc);
 		}
 	}
 	return rc;
@@ -747,7 +756,7 @@ static int msm_compr_mmap(struct snd_pcm_substream *substream,
 	int dir = -1;
 
 	prtd->mmap_flag = 1;
-
+	runtime->render_flag = SNDRV_NON_DMA_MODE;
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		dir = IN;
 	else

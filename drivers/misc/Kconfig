@@ -651,13 +651,6 @@ config QFP_FUSE
 	  to the fuse block. Currently this is supported only
 	  on FSM targets.
 
-config NFC_PN544
-	tristate "NFC driver for PN544"
-	default n
-	depends on I2C
-	help
-	  This option enables support for PN544.
-
 config QPNP_MISC
 	tristate "QPNP Misc Peripheral"
 	depends on SPMI
@@ -676,6 +669,17 @@ config USB_HSIC_SMSC_HUB
 
 	  This adds support for connecting devices like mouse in HSIC
 	  Host mode.
+
+config TI_DRV2667
+	tristate "TI's DRV2667 haptic controller support"
+	depends on I2C
+	help
+	  The DRV2667 is a piezo haptic controller chip. It can drive
+	  piezo haptics either in digital mode or analog mode. This chip
+	  can be used in variety of devices to provide haptic support.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ti_drv2667.
 
 config CRASH_LAST_LOGS
 	bool "export kernel and amss logs in proc"
@@ -700,22 +704,12 @@ config RAMDUMP_TAGS
 	  aside to hold the information which will later be used by
 	  the ramdump application.
 
-config TI_DRV2667
-	tristate "TI's DRV2667 haptic controller support"
+config NFC_PN544
+	tristate "NFC driver for PN544"
+	default n
 	depends on I2C
 	help
-	  The DRV2667 is a piezo haptic controller chip. It can drive
-	  piezo haptics either in digital mode or analog mode. This chip
-	  can be used in variety of devices to provide haptic support.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called ti_drv2667.
-
-config RPM975H16E4A_IRDA
-	bool "IrDA power control driver for Rohm RPM975-H16E4A"
-	default n
-	help
-	  This option enables support for Rohm RPM975-H16E4A.
+	  This option enables support for PN544.
 
 config SOMC_ISDBT_TUNER
 	tristate "SOMC ISDBT/Tmm tuner driver for SMT-EJ11x"
@@ -723,13 +717,6 @@ config SOMC_ISDBT_TUNER
 	depends on I2C
 	help
 	  Select this module to enable SOMC ISDB-T Tuner Driver.
-
-config SOMC_ONESEG_TUNER
-	tristate "SOMC ONESEG tuner driver for SMT-VJ18x"
-	default n
-	depends on I2C
-	help
-	  Select this module to enable SOMC ONESEG Tuner Driver.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
@@ -739,5 +726,4 @@ source "drivers/misc/ti-st/Kconfig"
 source "drivers/misc/lis3lv02d/Kconfig"
 source "drivers/misc/carma/Kconfig"
 source "drivers/misc/altera-stapl/Kconfig"
-source "drivers/misc/felica_snfc/Kconfig"
 endmenu

@@ -1,5 +1,5 @@
 /* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- * Copyright (c) 2012-2013, Sony Mobile Communications AB.
+ * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -209,6 +209,7 @@ static int msm_btsco_ch = 1;
 static int msm_hdmi_rx_ch = 2;
 static int slim0_rx_sample_rate = SAMPLING_RATE_48KHZ;
 static int msm_proxy_rx_ch = 2;
+static int hdmi_rx_sample_rate = SAMPLING_RATE_48KHZ;
 
 static struct mutex cdc_mclk_mutex;
 static struct clk *codec_clk;
@@ -266,7 +267,9 @@ static int msm8974_liquid_ext_spk_power_amp_init(void)
 static void msm8974_liquid_ext_ult_spk_power_amp_enable(u32 on)
 {
 	if (on) {
-		regulator_enable(ext_spk_amp_regulator);
+		if (regulator_enable(ext_spk_amp_regulator))
+			pr_err("%s: enable failed ext_spk_amp_reg\n",
+				__func__);
 		gpio_direction_output(ext_ult_spk_amp_gpio, 1);
 		/* time takes enable the external power class AB amplifier */
 		usleep_range(EXT_CLASS_AB_EN_DELAY,
@@ -286,7 +289,9 @@ static void msm8974_liquid_ext_ult_spk_power_amp_enable(u32 on)
 static void msm8974_liquid_ext_spk_power_amp_enable(u32 on)
 {
 	if (on) {
-		regulator_enable(ext_spk_amp_regulator);
+		if (regulator_enable(ext_spk_amp_regulator))
+			pr_err("%s: enable failed ext_spk_amp_reg\n",
+				__func__);
 		gpio_direction_output(ext_spk_amp_gpio, on);
 		/*time takes enable the external power amplifier*/
 		usleep_range(EXT_CLASS_D_EN_DELAY,
@@ -731,7 +736,8 @@ static const struct snd_soc_dapm_widget msm8974_dapm_widgets[] = {
 static const char *const spk_function[] = {"Off", "On"};
 static const char *const slim0_rx_ch_text[] = {"One", "Two"};
 static const char *const slim0_tx_ch_text[] = {"One", "Two", "Three", "Four",
-						"Five"};
+						"Five", "Six", "Seven",
+						"Eight"};
 static char const *hdmi_rx_ch_text[] = {"Two", "Three", "Four", "Five",
 					"Six", "Seven", "Eight"};
 static char const *rx_bit_format_text[] = {"S16_LE", "S24_LE"};
@@ -740,6 +746,8 @@ static char const *slim0_rx_sample_rate_text[] = {"KHZ_48", "KHZ_96",
 static const char *const proxy_rx_ch_text[] = {"One", "Two", "Three", "Four",
 	"Five",	"Six", "Seven", "Eight"};
 
+static char const *hdmi_rx_sample_rate_text[] = {"KHZ_48", "KHZ_96",
+					"KHZ_192"};
 static const char *const btsco_rate_text[] = {"8000", "16000"};
 static const struct soc_enum msm_btsco_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),
@@ -882,10 +890,10 @@ static int msm_btsco_rate_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	switch (ucontrol->value.integer.value[0]) {
-	case 0:
+	case 8000:
 		msm_btsco_rate = BTSCO_RATE_8KHZ;
 		break;
-	case 1:
+	case 16000:
 		msm_btsco_rate = BTSCO_RATE_16KHZ;
 		break;
 	default:
@@ -960,10 +968,56 @@ static int msm_hdmi_rx_ch_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
-static const struct snd_kcontrol_new int_btsco_rate_mixer_controls[] = {
-	SOC_ENUM_EXT("Internal BTSCO SampleRate", msm_btsco_enum[0],
-		     msm_btsco_rate_get, msm_btsco_rate_put),
-};
+static int hdmi_rx_sample_rate_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	int sample_rate_val = 0;
+
+	switch (hdmi_rx_sample_rate) {
+	case SAMPLING_RATE_192KHZ:
+		sample_rate_val = 2;
+		break;
+
+	case SAMPLING_RATE_96KHZ:
+		sample_rate_val = 1;
+		break;
+
+	case SAMPLING_RATE_48KHZ:
+	default:
+		sample_rate_val = 0;
+		break;
+	}
+
+	ucontrol->value.integer.value[0] = sample_rate_val;
+	pr_debug("%s: hdmi_rx_sample_rate = %d\n", __func__,
+				hdmi_rx_sample_rate);
+
+	return 0;
+}
+
+static int hdmi_rx_sample_rate_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	pr_debug("%s: ucontrol value = %ld\n", __func__,
+			ucontrol->value.integer.value[0]);
+
+	switch (ucontrol->value.integer.value[0]) {
+	case 2:
+		hdmi_rx_sample_rate = SAMPLING_RATE_192KHZ;
+		break;
+	case 1:
+		hdmi_rx_sample_rate = SAMPLING_RATE_96KHZ;
+		break;
+	case 0:
+	default:
+		hdmi_rx_sample_rate = SAMPLING_RATE_48KHZ;
+	}
+
+	pr_debug("%s: hdmi_rx_sample_rate = %d\n", __func__,
+			hdmi_rx_sample_rate);
+
+	return 0;
+}
 
 static int msm_btsco_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 					struct snd_pcm_hw_params *params)
@@ -1080,7 +1134,7 @@ static int msm8974_hdmi_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 				hdmi_rx_bit_format);
 	if (channels->max < 2)
 		channels->min = channels->max = 2;
-	rate->min = rate->max = 48000;
+	rate->min = rate->max = hdmi_rx_sample_rate;
 	channels->min = channels->max = msm_hdmi_rx_ch;
 
 	return 0;
@@ -1344,11 +1398,12 @@ static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 static const struct soc_enum msm_snd_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, spk_function),
 	SOC_ENUM_SINGLE_EXT(2, slim0_rx_ch_text),
-	SOC_ENUM_SINGLE_EXT(5, slim0_tx_ch_text),
+	SOC_ENUM_SINGLE_EXT(8, slim0_tx_ch_text),
 	SOC_ENUM_SINGLE_EXT(7, hdmi_rx_ch_text),
 	SOC_ENUM_SINGLE_EXT(2, rx_bit_format_text),
 	SOC_ENUM_SINGLE_EXT(3, slim0_rx_sample_rate_text),
 	SOC_ENUM_SINGLE_EXT(8, proxy_rx_ch_text),
+	SOC_ENUM_SINGLE_EXT(3, hdmi_rx_sample_rate_text),
 };
 
 static const struct snd_kcontrol_new msm_snd_controls[] = {
@@ -1370,6 +1425,10 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			hdmi_rx_bit_format_get, hdmi_rx_bit_format_put),
 	SOC_ENUM_EXT("PROXY_RX Channels", msm_snd_enum[6],
 			msm_proxy_rx_ch_get, msm_proxy_rx_ch_put),
+	SOC_ENUM_EXT("Internal BTSCO SampleRate", msm_btsco_enum[0],
+		     msm_btsco_rate_get, msm_btsco_rate_put),
+	SOC_ENUM_EXT("HDMI_RX SampleRate", msm_snd_enum[7],
+			hdmi_rx_sample_rate_get, hdmi_rx_sample_rate_put),
 };
 
 static bool msm8974_swap_gnd_mic(struct snd_soc_codec *codec)
@@ -1588,6 +1647,7 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		pr_err("%s: Failed to register adsp state notifier\n",
 		       __func__);
 		err = -EFAULT;
+		taiko_hs_detect_exit(codec);
 		goto out;
 	}
 
@@ -2123,6 +2183,22 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		 /* this dainlink has playback support */
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA8,
 	},
+	{
+		.name = "QCHAT",
+		.stream_name = "QCHAT",
+		.cpu_dai_name   = "QCHAT",
+		.platform_name  = "msm-pcm-voice",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		/* this dainlink has playback support */
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.be_id = MSM_FRONTEND_DAI_QCHAT,
+	},
 	/* HDMI Hostless */
 	{
 		.name = "HDMI_RX_HOSTLESS",
@@ -2613,24 +2689,6 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	/* Parse Primary AUXPCM info from DT */
-	ret = msm8974_dtparse_auxpcm(pdev, &pdata->pri_auxpcm_ctrl,
-					msm_prim_auxpcm_gpio_name);
-	if (ret) {
-		dev_err(&pdev->dev,
-		"%s: Primary Auxpcm pin data parse failed\n", __func__);
-		goto err;
-	}
-
-	/* Parse Secondary AUXPCM info from DT */
-	ret = msm8974_dtparse_auxpcm(pdev, &pdata->sec_auxpcm_ctrl,
-					msm_sec_auxpcm_gpio_name);
-	if (ret) {
-		dev_err(&pdev->dev,
-		"%s: Secondary Auxpcm pin data parse failed\n", __func__);
-		goto err;
-	}
-
 	card->dev = &pdev->dev;
 	platform_set_drvdata(pdev, card);
 	snd_soc_card_set_drvdata(card, pdata);
@@ -2671,26 +2729,9 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	ext_ult_lo_amp_gpio = of_get_named_gpio(pdev->dev.of_node,
-						prop_name_ult_lo_gpio, 0);
-	if (!gpio_is_valid(ext_ult_lo_amp_gpio)) {
-		dev_dbg(&pdev->dev,
-			"Couldn't find %s property in node %s, %d\n",
-			prop_name_ult_lo_gpio, pdev->dev.of_node->full_name,
-			ext_ult_lo_amp_gpio);
-	} else {
-		ret = gpio_request(ext_ult_lo_amp_gpio, "US_AMP_GPIO");
-		if (ret) {
-			dev_err(card->dev,
-				"%s: Failed to request US amp gpio %d\n",
-				__func__, ext_ult_lo_amp_gpio);
-			goto err;
-		}
-	}
-
 	ret = msm8974_prepare_codec_mclk(card);
 	if (ret)
-		goto err1;
+		goto err;
 
 	if (of_property_read_bool(pdev->dev.of_node, "qcom,hdmi-audio-rx")) {
 		dev_info(&pdev->dev, "%s(): hdmi audio support present\n",
@@ -2710,6 +2751,58 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 		card->dai_link	= msm8974_common_dai_links;
 		card->num_links	= ARRAY_SIZE(msm8974_common_dai_links);
 	}
+	mutex_init(&cdc_mclk_mutex);
+	atomic_set(&prim_auxpcm_rsc_ref, 0);
+	atomic_set(&sec_auxpcm_rsc_ref, 0);
+	spdev = pdev;
+	ext_spk_amp_regulator = NULL;
+	msm8974_liquid_dock_dev = NULL;
+
+	ret = snd_soc_register_card(card);
+	if (ret == -EPROBE_DEFER)
+		goto err;
+	else if (ret) {
+		dev_err(&pdev->dev, "snd_soc_register_card failed (%d)\n",
+			ret);
+		goto err;
+	}
+
+	/* Parse Primary AUXPCM info from DT */
+	ret = msm8974_dtparse_auxpcm(pdev, &pdata->pri_auxpcm_ctrl,
+					msm_prim_auxpcm_gpio_name);
+	if (ret) {
+		dev_err(&pdev->dev,
+		"%s: Primary Auxpcm pin data parse failed\n", __func__);
+		goto err;
+	}
+
+	/* Parse Secondary AUXPCM info from DT */
+	ret = msm8974_dtparse_auxpcm(pdev, &pdata->sec_auxpcm_ctrl,
+					msm_sec_auxpcm_gpio_name);
+	if (ret) {
+		dev_err(&pdev->dev,
+		"%s: Secondary Auxpcm pin data parse failed\n", __func__);
+		goto err;
+	}
+
+
+	ext_ult_lo_amp_gpio = of_get_named_gpio(pdev->dev.of_node,
+						prop_name_ult_lo_gpio, 0);
+	if (!gpio_is_valid(ext_ult_lo_amp_gpio)) {
+		dev_dbg(&pdev->dev,
+			"Couldn't find %s property in node %s, %d\n",
+			prop_name_ult_lo_gpio, pdev->dev.of_node->full_name,
+			ext_ult_lo_amp_gpio);
+	} else {
+		ret = gpio_request(ext_ult_lo_amp_gpio, "US_AMP_GPIO");
+		if (ret) {
+			dev_err(card->dev,
+				"%s: Failed to request US amp gpio %d\n",
+				__func__, ext_ult_lo_amp_gpio);
+			goto err;
+		}
+	}
+
 
 	pdata->us_euro_gpio = of_get_named_gpio(pdev->dev.of_node,
 				"qcom,us-euro-gpios", 0);
@@ -2727,20 +2820,6 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 	if (ret)
 		dev_err(&pdev->dev, "msm8974_prepare_us_euro failed (%d)\n",
 			ret);
-
-	mutex_init(&cdc_mclk_mutex);
-	atomic_set(&prim_auxpcm_rsc_ref, 0);
-	atomic_set(&sec_auxpcm_rsc_ref, 0);
-	spdev = pdev;
-	ext_spk_amp_regulator = NULL;
-	msm8974_liquid_dock_dev = NULL;
-
-	ret = snd_soc_register_card(card);
-	if (ret) {
-		dev_err(&pdev->dev, "snd_soc_register_card failed (%d)\n",
-			ret);
-		goto err1;
-	}
 
 	ret = of_property_read_string(pdev->dev.of_node,
 			"qcom,prim-auxpcm-gpio-set", &auxpcm_pri_gpio_set);
@@ -2774,7 +2853,8 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 	return 0;
 
 err1:
-	gpio_free(ext_ult_lo_amp_gpio);
+	if (ext_ult_lo_amp_gpio >= 0)
+		gpio_free(ext_ult_lo_amp_gpio);
 	ext_ult_lo_amp_gpio = -1;
 err:
 	if (pdata->mclk_gpio > 0) {
@@ -2789,6 +2869,7 @@ err:
 		gpio_free(pdata->us_euro_gpio);
 		pdata->us_euro_gpio = 0;
 	}
+	mutex_destroy(&cdc_mclk_mutex);
 	devm_kfree(&pdev->dev, pdata);
 	return ret;
 }

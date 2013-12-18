@@ -752,7 +752,7 @@ static int tags_write(struct file *file, const char *buffer,
 	tag_data = strnchr(kbuf, RDTAGS_NAME_SIZE, ' ');
 
 	if (!tag_data) {
-		dev_err(dev, "Incorrect format, please supply a string of "
+		dev_err(dev, "Incorrect format, please supply a string of " \
 			"format: <tag name> <tag data>\n");
 		goto exit;
 	}

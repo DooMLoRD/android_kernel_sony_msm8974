@@ -42,18 +42,14 @@ struct snd_msm {
 	struct snd_pcm *pcm;
 };
 
-struct snd_msm_volume {
-	struct msm_audio *prtd;
-	unsigned volume;
-};
-static struct snd_msm_volume pcm_audio = {NULL, 0x2000};
-
-#define PLAYBACK_NUM_PERIODS	8
+#define PLAYBACK_MIN_NUM_PERIODS    2
+#define PLAYBACK_MAX_NUM_PERIODS    8
 #define PLAYBACK_MAX_PERIOD_SIZE    12288
-#define PLAYBACK_MIN_PERIOD_SIZE    1024
-#define CAPTURE_NUM_PERIODS	16
-#define CAPTURE_MAX_PERIOD_SIZE 4096
-#define CAPTURE_MIN_PERIOD_SIZE 512
+#define PLAYBACK_MIN_PERIOD_SIZE    128
+#define CAPTURE_MIN_NUM_PERIODS     2
+#define CAPTURE_MAX_NUM_PERIODS     8
+#define CAPTURE_MAX_PERIOD_SIZE     4096
+#define CAPTURE_MIN_PERIOD_SIZE     320
 
 static struct snd_pcm_hardware msm_pcm_hardware_capture = {
 	.info =                 (SNDRV_PCM_INFO_MMAP |
@@ -61,17 +57,19 @@ static struct snd_pcm_hardware msm_pcm_hardware_capture = {
 				SNDRV_PCM_INFO_MMAP_VALID |
 				SNDRV_PCM_INFO_INTERLEAVED |
 				SNDRV_PCM_INFO_PAUSE | SNDRV_PCM_INFO_RESUME),
-	.formats =              SNDRV_PCM_FMTBIT_S16_LE,
+	.formats =              (SNDRV_PCM_FMTBIT_S16_LE |
+				SNDRV_PCM_FMTBIT_S24_LE),
 	.rates =                SNDRV_PCM_RATE_8000_48000,
 	.rate_min =             8000,
 	.rate_max =             48000,
 	.channels_min =         1,
 	.channels_max =         4,
-	.buffer_bytes_max =     CAPTURE_NUM_PERIODS * CAPTURE_MAX_PERIOD_SIZE,
+	.buffer_bytes_max =     CAPTURE_MAX_NUM_PERIODS *
+				CAPTURE_MAX_PERIOD_SIZE,
 	.period_bytes_min =	CAPTURE_MIN_PERIOD_SIZE,
 	.period_bytes_max =     CAPTURE_MAX_PERIOD_SIZE,
-	.periods_min =          CAPTURE_NUM_PERIODS,
-	.periods_max =          CAPTURE_NUM_PERIODS,
+	.periods_min =          CAPTURE_MIN_NUM_PERIODS,
+	.periods_max =          CAPTURE_MAX_NUM_PERIODS,
 	.fifo_size =            0,
 };
 
@@ -88,11 +86,12 @@ static struct snd_pcm_hardware msm_pcm_hardware_playback = {
 	.rate_max =             192000,
 	.channels_min =         1,
 	.channels_max =         8,
-	.buffer_bytes_max =     PLAYBACK_NUM_PERIODS * PLAYBACK_MAX_PERIOD_SIZE,
+	.buffer_bytes_max =     PLAYBACK_MAX_NUM_PERIODS *
+				PLAYBACK_MAX_PERIOD_SIZE,
 	.period_bytes_min =	PLAYBACK_MIN_PERIOD_SIZE,
 	.period_bytes_max =     PLAYBACK_MAX_PERIOD_SIZE,
-	.periods_min =          PLAYBACK_NUM_PERIODS,
-	.periods_max =          PLAYBACK_NUM_PERIODS,
+	.periods_min =          PLAYBACK_MIN_NUM_PERIODS,
+	.periods_max =          PLAYBACK_MAX_NUM_PERIODS,
 	.fifo_size =            0,
 };
 
@@ -102,7 +101,7 @@ static unsigned int supported_sample_rates[] = {
 	96000, 192000
 };
 
-static uint32_t in_frame_info[CAPTURE_NUM_PERIODS][2];
+static uint32_t in_frame_info[CAPTURE_MAX_NUM_PERIODS][2];
 
 static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
 	.count = ARRAY_SIZE(supported_sample_rates),
@@ -256,6 +255,8 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	struct msm_audio *prtd = runtime->private_data;
 	int ret = 0;
 	int i = 0;
+	uint16_t bits_per_sample = 16;
+
 	pr_debug("%s\n", __func__);
 	prtd->pcm_size = snd_pcm_lib_buffer_bytes(substream);
 	prtd->pcm_count = snd_pcm_lib_period_bytes(substream);
@@ -268,10 +269,19 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	if (prtd->enabled)
 		return 0;
 
+	switch (runtime->format) {
+	case SNDRV_PCM_FORMAT_S16_LE:
+		bits_per_sample = 16;
+		break;
+	case SNDRV_PCM_FORMAT_S24_LE:
+		bits_per_sample = 24;
+		break;
+	}
 	pr_debug("Samp_rate = %d\n", prtd->samp_rate);
 	pr_debug("Channel = %d\n", prtd->channel_mode);
-	ret = q6asm_enc_cfg_blk_pcm(prtd->audio_client, prtd->samp_rate,
-					prtd->channel_mode);
+	ret = q6asm_enc_cfg_blk_pcm_format_support(prtd->audio_client,
+					prtd->samp_rate, prtd->channel_mode,
+					bits_per_sample);
 	if (ret < 0)
 		pr_debug("%s: cmd cfg pcm was block failed", __func__);
 
@@ -368,8 +378,8 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		ret = snd_pcm_hw_constraint_minmax(runtime,
 			SNDRV_PCM_HW_PARAM_BUFFER_BYTES,
-			PLAYBACK_NUM_PERIODS * PLAYBACK_MIN_PERIOD_SIZE,
-			PLAYBACK_NUM_PERIODS * PLAYBACK_MAX_PERIOD_SIZE);
+			PLAYBACK_MIN_NUM_PERIODS * PLAYBACK_MIN_PERIOD_SIZE,
+			PLAYBACK_MAX_NUM_PERIODS * PLAYBACK_MAX_PERIOD_SIZE);
 		if (ret < 0) {
 			pr_err("constraint for buffer bytes min max ret = %d\n",
 									ret);
@@ -379,8 +389,8 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		ret = snd_pcm_hw_constraint_minmax(runtime,
 			SNDRV_PCM_HW_PARAM_BUFFER_BYTES,
-			CAPTURE_NUM_PERIODS * CAPTURE_MIN_PERIOD_SIZE,
-			CAPTURE_NUM_PERIODS * CAPTURE_MAX_PERIOD_SIZE);
+			CAPTURE_MIN_NUM_PERIODS * CAPTURE_MIN_PERIOD_SIZE,
+			CAPTURE_MAX_NUM_PERIODS * CAPTURE_MAX_PERIOD_SIZE);
 		if (ret < 0) {
 			pr_err("constraint for buffer bytes min max ret = %d\n",
 									ret);
@@ -390,7 +400,6 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	prtd->dsp_cnt = 0;
 	prtd->set_channel_map = false;
 	runtime->private_data = prtd;
-	pcm_audio.prtd = prtd;
 
 	return 0;
 }
@@ -481,7 +490,6 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 		q6asm_cmd(prtd->audio_client, CMD_CLOSE);
 		q6asm_audio_client_buf_free_contiguous(dir,
 					prtd->audio_client);
-		pcm_audio.prtd = NULL;
 		q6asm_audio_client_free(prtd->audio_client);
 	}
 	msm_pcm_routing_dereg_phy_stream(soc_prtd->dai_link->be_id,
@@ -703,10 +711,13 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	/* Capture Path */
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
+		if (params_format(params) == SNDRV_PCM_FORMAT_S24_LE)
+			bits_per_sample = 24;
 
 		pr_debug("%s Opening %d-ch PCM read stream\n",
 			__func__, params_channels(params));
-		ret = q6asm_open_read(prtd->audio_client, FORMAT_LINEAR_PCM);
+		ret = q6asm_open_read_v2(prtd->audio_client, FORMAT_LINEAR_PCM,
+				bits_per_sample);
 		if (ret < 0) {
 			pr_err("%s: q6asm_open_read failed\n", __func__);
 			q6asm_audio_client_free(prtd->audio_client);
@@ -761,30 +772,71 @@ static struct snd_pcm_ops msm_pcm_ops = {
 	.mmap		= msm_pcm_mmap,
 };
 
-static int pcm_chmap_ctl_put(struct snd_kcontrol *kcontrol,
+static int msm_pcm_chmap_ctl_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	int i;
-	char channel_mapping[PCM_FORMAT_MAX_NUM_CHANNEL];
+	struct snd_pcm_chmap *info = snd_kcontrol_chip(kcontrol);
+	unsigned int idx = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id);
+	struct snd_pcm_substream *substream;
+	struct msm_audio *prtd;
 
 	pr_debug("%s", __func__);
-	for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL; i++)
-		channel_mapping[i] = (char)(ucontrol->value.integer.value[i]);
-	if (pcm_audio.prtd) {
-		pcm_audio.prtd->set_channel_map = true;
-		memcpy(pcm_audio.prtd->channel_map, channel_mapping,
-			PCM_FORMAT_MAX_NUM_CHANNEL);
+	substream = snd_pcm_chmap_substream(info, idx);
+	if (!substream)
+		return -ENODEV;
+	if (!substream->runtime)
+		return 0;
+
+	prtd = substream->runtime->private_data;
+	if (prtd) {
+		prtd->set_channel_map = true;
+			for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL; i++)
+				prtd->channel_map[i] =
+				(char)(ucontrol->value.integer.value[i]);
 	}
+	return 0;
+}
+
+static int msm_pcm_chmap_ctl_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	int i;
+	struct snd_pcm_chmap *info = snd_kcontrol_chip(kcontrol);
+	unsigned int idx = snd_ctl_get_ioffidx(kcontrol, &ucontrol->id);
+	struct snd_pcm_substream *substream;
+	struct msm_audio *prtd;
+
+	pr_debug("%s", __func__);
+	substream = snd_pcm_chmap_substream(info, idx);
+	if (!substream)
+		return -ENODEV;
+	memset(ucontrol->value.integer.value, 0,
+		sizeof(ucontrol->value.integer.value));
+	if (!substream->runtime)
+		return 0; /* no channels set */
+
+	prtd = substream->runtime->private_data;
+
+	if (prtd && prtd->set_channel_map == true) {
+		for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL; i++)
+			ucontrol->value.integer.value[i] =
+					(int)prtd->channel_map[i];
+	} else {
+		for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL; i++)
+			ucontrol->value.integer.value[i] = 0;
+	}
+
 	return 0;
 }
 
 static int msm_asoc_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_card *card = rtd->card->snd_card;
-	struct snd_pcm *pcm = rtd->pcm->streams[0].pcm;
+	struct snd_pcm *pcm = rtd->pcm;
 	struct snd_pcm_chmap *chmap_info;
 	struct snd_kcontrol *kctl;
-	char device_num[3];
+	char device_num[12];
 	int i, ret = 0;
 
 	if (!card->dev->coherent_dma_mask)
@@ -792,8 +844,9 @@ static int msm_asoc_pcm_new(struct snd_soc_pcm_runtime *rtd)
 
 	pr_debug("%s, Channel map cntrl add\n", __func__);
 	ret = snd_pcm_add_chmap_ctls(pcm, SNDRV_PCM_STREAM_PLAYBACK,
-					NULL, PCM_FORMAT_MAX_NUM_CHANNEL, 0,
-					&chmap_info);
+				     snd_pcm_std_chmaps,
+				     PCM_FORMAT_MAX_NUM_CHANNEL, 0,
+				     &chmap_info);
 	if (ret < 0)
 		return ret;
 	kctl = chmap_info->kctl;
@@ -803,7 +856,8 @@ static int msm_asoc_pcm_new(struct snd_soc_pcm_runtime *rtd)
 	strlcat(kctl->id.name, device_num, sizeof(kctl->id.name));
 	pr_debug("%s, Overwriting channel map control name to: %s",
 		__func__, kctl->id.name);
-	kctl->put = pcm_chmap_ctl_put;
+	kctl->put = msm_pcm_chmap_ctl_put;
+	kctl->get = msm_pcm_chmap_ctl_get;
 	return ret;
 }
 

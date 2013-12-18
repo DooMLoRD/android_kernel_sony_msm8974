@@ -54,6 +54,22 @@
 
 #define KGSL_IS_PAGE_ALIGNED(addr) (!((addr) & (~PAGE_MASK)))
 
+/*
+ * KGSL event types - these are passed to the event callback when the event
+ * expires or is cancelled
+ */
+
+#define KGSL_EVENT_TIMESTAMP_RETIRED 0
+#define KGSL_EVENT_CANCELLED 1
+
+/*
+ * "list" of event types for ftrace symbolic magic
+ */
+
+#define KGSL_EVENT_TYPES \
+	{ KGSL_EVENT_TIMESTAMP_RETIRED, "retired" }, \
+	{ KGSL_EVENT_CANCELLED, "cancelled" }
+
 struct kgsl_device;
 struct platform_device;
 struct kgsl_device_private;
@@ -94,7 +110,7 @@ struct kgsl_functable {
 		struct kgsl_pagetable *pagetable);
 	void (*power_stats)(struct kgsl_device *device,
 		struct kgsl_power_stats *stats);
-	void (*irqctrl)(struct kgsl_device *device, unsigned int mask);
+	void (*irqctrl)(struct kgsl_device *device, int state);
 	unsigned int (*gpuid)(struct kgsl_device *device, unsigned int *chipid);
 	void * (*snapshot)(struct kgsl_device *device, void *snapshot,
 		int *remain, int hang);
@@ -127,10 +143,12 @@ struct kgsl_mh {
 	int              mpu_range;
 };
 
+typedef void (*kgsl_event_func)(struct kgsl_device *, void *, u32, u32, u32);
+
 struct kgsl_event {
 	struct kgsl_context *context;
 	uint32_t timestamp;
-	void (*func)(struct kgsl_device *, void *, u32, u32);
+	kgsl_event_func func;
 	void *priv;
 	struct list_head list;
 	void *owner;
@@ -173,7 +191,6 @@ struct kgsl_device {
 	const struct kgsl_functable *ftbl;
 	struct work_struct idle_check_ws;
 	struct work_struct hang_check_ws;
-	struct work_struct hang_intr_ws;
 	struct timer_list idle_timer;
 	struct timer_list hang_timer;
 	struct kgsl_pwrctrl pwrctrl;
@@ -183,10 +200,10 @@ struct kgsl_device {
 	uint32_t state;
 	uint32_t requested_state;
 
-	unsigned int active_cnt;
-	struct completion suspend_gate;
+	atomic_t active_cnt;
 
 	wait_queue_head_t wait_queue;
+	wait_queue_head_t active_cnt_wq;
 	struct workqueue_struct *work_queue;
 	struct device *parentdev;
 	struct completion ft_gate;
@@ -237,20 +254,18 @@ void kgsl_process_events(struct work_struct *work);
 
 #define KGSL_DEVICE_COMMON_INIT(_dev) \
 	.hwaccess_gate = COMPLETION_INITIALIZER((_dev).hwaccess_gate),\
-	.suspend_gate = COMPLETION_INITIALIZER((_dev).suspend_gate),\
 	.ft_gate = COMPLETION_INITIALIZER((_dev).ft_gate),\
 	.idle_check_ws = __WORK_INITIALIZER((_dev).idle_check_ws,\
 			kgsl_idle_check),\
 	.hang_check_ws = __WORK_INITIALIZER((_dev).hang_check_ws,\
 			kgsl_hang_check),\
-	.hang_intr_ws = __WORK_INITIALIZER((_dev).hang_intr_ws,\
-			kgsl_hang_intr_work),\
 	.ts_expired_ws  = __WORK_INITIALIZER((_dev).ts_expired_ws,\
 			kgsl_process_events),\
 	.context_idr = IDR_INIT((_dev).context_idr),\
 	.events = LIST_HEAD_INIT((_dev).events),\
 	.events_pending_list = LIST_HEAD_INIT((_dev).events_pending_list), \
 	.wait_queue = __WAIT_QUEUE_HEAD_INITIALIZER((_dev).wait_queue),\
+	.active_cnt_wq = __WAIT_QUEUE_HEAD_INITIALIZER((_dev).active_cnt_wq),\
 	.mutex = __MUTEX_INITIALIZER((_dev).mutex),\
 	.state = KGSL_STATE_INIT,\
 	.ver_major = DRIVER_VERSION_MAJOR,\
@@ -300,8 +315,23 @@ struct kgsl_context {
 	unsigned int pagefault_ts;
 };
 
+/**
+ * struct kgsl_process_private -  Private structure for a KGSL process (across
+ * all devices)
+ * @priv: Internal flags, use KGSL_PROCESS_* values
+ * @pid: ID for the task owner of the process
+ * @mem_lock: Spinlock to protect the process memory lists
+ * @refcount: kref object for reference counting the process
+ * @process_private_mutex: Mutex to synchronize access to the process struct
+ * @mem_rb: RB tree node for the memory owned by this process
+ * @idr: Iterator for assigning IDs to memory allocations
+ * @pagetable: Pointer to the pagetable owned by this process
+ * @kobj: Pointer to a kobj for the sysfs directory for this process
+ * @debug_root: Pointer to the debugfs root for this process
+ * @stats: Memory allocation statistics for this process
+ */
 struct kgsl_process_private {
-	unsigned int refcnt;
+	unsigned long priv;
 	pid_t pid;
 	spinlock_t mem_lock;
 
@@ -323,6 +353,14 @@ struct kgsl_process_private {
 	} stats[KGSL_MEM_ENTRY_MAX];
 };
 
+/**
+ * enum kgsl_process_priv_flags - Private flags for kgsl_process_private
+ * @KGSL_PROCESS_INIT: Set if the process structure has been set up
+ */
+enum kgsl_process_priv_flags {
+	KGSL_PROCESS_INIT = 0,
+};
+
 struct kgsl_device_private {
 	struct kgsl_device *device;
 	struct kgsl_process_private *process_priv;
@@ -334,6 +372,9 @@ struct kgsl_power_stats {
 };
 
 struct kgsl_device *kgsl_get_device(int dev_idx);
+
+int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
+	kgsl_event_func func, void *priv, void *owner);
 
 static inline void kgsl_process_add_stats(struct kgsl_process_private *priv,
 	unsigned int type, size_t size)
@@ -553,4 +594,30 @@ static inline struct kgsl_context *kgsl_context_get_owner(
 	return context;
 }
 
+/**
+ * kgsl_context_cancel_events() - Cancel all events for a context
+ * @device:  Pointer to the KGSL device structure for the GPU
+ * @context: Pointer to the KGSL context
+ *
+ * Signal all pending events on the context with KGSL_EVENT_CANCELLED
+ */
+static inline void kgsl_context_cancel_events(struct kgsl_device *device,
+	struct kgsl_context *context)
+{
+	kgsl_signal_events(device, context, KGSL_EVENT_CANCELLED);
+}
+
+/**
+ * kgsl_context_cancel_events_timestamp() - cancel events for a given timestamp
+ * @device: Pointer to the KGSL device that owns the context
+ * @context: Pointer to the context that owns the event or NULL for global
+ * @timestamp: Timestamp to cancel events for
+ *
+ * Cancel events pending for a specific timestamp
+ */
+static inline void kgsl_cancel_events_timestamp(struct kgsl_device *device,
+	struct kgsl_context *context, unsigned int timestamp)
+{
+	kgsl_signal_event(device, context, timestamp, KGSL_EVENT_CANCELLED);
+}
 #endif  /* __KGSL_DEVICE_H */

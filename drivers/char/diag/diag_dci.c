@@ -20,6 +20,8 @@
 #include <linux/workqueue.h>
 #include <linux/pm_runtime.h>
 #include <linux/platform_device.h>
+#include <linux/pm_wakeup.h>
+#include <linux/spinlock.h>
 #include <asm/current.h>
 #ifdef CONFIG_DIAG_OVER_USB
 #include <mach/usbdiag.h>
@@ -39,8 +41,41 @@ struct mutex dci_log_mask_mutex;
 struct mutex dci_event_mask_mutex;
 struct mutex dci_health_mutex;
 
+spinlock_t ws_lock;
+unsigned long ws_lock_flags;
+
+/* Number of milliseconds anticipated to process the DCI data */
+#define DCI_WAKEUP_TIMEOUT 1
+
 #define DCI_CHK_CAPACITY(entry, new_data_len)				\
 ((entry->data_len + new_data_len > entry->total_capacity) ? 1 : 0)	\
+
+#ifdef CONFIG_DEBUG_FS
+struct diag_dci_data_info *dci_data_smd;
+struct mutex dci_stat_mutex;
+
+void diag_dci_smd_record_info(int read_bytes, uint8_t ch_type)
+{
+	static int curr_dci_data_smd;
+	static unsigned long iteration;
+	struct diag_dci_data_info *temp_data = dci_data_smd;
+	if (!temp_data)
+		return;
+	mutex_lock(&dci_stat_mutex);
+	if (curr_dci_data_smd == DIAG_DCI_DEBUG_CNT)
+		curr_dci_data_smd = 0;
+	temp_data += curr_dci_data_smd;
+	temp_data->iteration = iteration + 1;
+	temp_data->data_size = read_bytes;
+	temp_data->ch_type = ch_type;
+	diag_get_timestamp(temp_data->time_stamp);
+	curr_dci_data_smd++;
+	iteration++;
+	mutex_unlock(&dci_stat_mutex);
+}
+#else
+void diag_dci_smd_record_info(int read_bytes, uint8_t ch_type) { }
+#endif
 
 /* Process the data read from the smd dci channel */
 int diag_process_smd_dci_read_data(struct diag_smd_info *smd_info, void *buf,
@@ -49,6 +84,7 @@ int diag_process_smd_dci_read_data(struct diag_smd_info *smd_info, void *buf,
 	int read_bytes, dci_pkt_len, i;
 	uint8_t recv_pkt_cmd_code;
 
+	diag_dci_smd_record_info(recd_bytes, (uint8_t)smd_info->type);
 	/* Each SMD read can have multiple DCI packets */
 	read_bytes = 0;
 	while (read_bytes < recd_bytes) {
@@ -69,6 +105,11 @@ int diag_process_smd_dci_read_data(struct diag_smd_info *smd_info, void *buf,
 		read_bytes += 5 + dci_pkt_len;
 		buf += 5 + dci_pkt_len; /* advance to next DCI pkt */
 	}
+	/* Release wakeup source when there are no more clients to
+	   process DCI data */
+	if (driver->num_dci_client == 0)
+		diag_dci_try_deactivate_wakeup_source(smd_info->ch);
+
 	/* wake up all sleeping DCI clients which have some data */
 	for (i = 0; i < MAX_DCI_CLIENTS; i++) {
 		if (driver->dci_client_tbl[i].client &&
@@ -118,6 +159,7 @@ void extract_dci_pkt_rsp(struct diag_smd_info *smd_info, unsigned char *buf)
 	if (i != DCI_CLIENT_INDEX_INVALID) {
 		/* copy pkt rsp in client buf */
 		entry = &(driver->dci_client_tbl[i]);
+		mutex_lock(&entry->data_mutex);
 		if (DCI_CHK_CAPACITY(entry, 8+write_len)) {
 			pr_alert("diag: create capacity for pkt rsp\n");
 			entry->total_capacity += 8+write_len;
@@ -125,6 +167,7 @@ void extract_dci_pkt_rsp(struct diag_smd_info *smd_info, unsigned char *buf)
 			entry->total_capacity, GFP_KERNEL);
 			if (!temp_buf) {
 				pr_err("diag: DCI realloc failed\n");
+				mutex_unlock(&entry->data_mutex);
 				return;
 			} else {
 				entry->dci_data = temp_buf;
@@ -139,6 +182,7 @@ void extract_dci_pkt_rsp(struct diag_smd_info *smd_info, unsigned char *buf)
 		memcpy(entry->dci_data+entry->data_len,
 			buf+4+cmd_code_len, write_len);
 		entry->data_len += write_len;
+		mutex_unlock(&entry->data_mutex);
 		/* delete immediate response entry */
 		if (smd_info->buf_in_1[8+cmd_code_len] != 0x80)
 			driver->req_tracking_tbl[index].pid = 0;
@@ -165,9 +209,16 @@ void extract_dci_events(unsigned char *buf)
 		event_id_packet = *(uint16_t *)(buf + temp_len);
 		event_id = event_id_packet & 0x0FFF; /* extract 12 bits */
 		if (event_id_packet & 0x8000) {
+			/* The packet has the two smallest byte of the
+			 * timestamp
+			 */
 			timestamp_len = 2;
-			memset(timestamp, 0, 8);
 		} else {
+			/* The packet has the full timestamp. The first event
+			 * will always have full timestamp. Save it in the
+			 * timestamp buffer and use it for subsequent events if
+			 * necessary.
+			 */
 			timestamp_len = 8;
 			memcpy(timestamp, buf + temp_len + 2, timestamp_len);
 		}
@@ -213,6 +264,7 @@ void extract_dci_events(unsigned char *buf)
 				event_mask_ptr = entry->dci_event_mask +
 								 byte_index;
 				mutex_lock(&dci_health_mutex);
+				mutex_lock(&entry->data_mutex);
 				if (*event_mask_ptr & byte_mask) {
 					/* copy to client buffer */
 					if (DCI_CHK_CAPACITY(entry,
@@ -220,6 +272,8 @@ void extract_dci_events(unsigned char *buf)
 						pr_err("diag: DCI event drop\n");
 						driver->dci_client_tbl[i].
 							dropped_events++;
+						mutex_unlock(
+							&entry->data_mutex);
 						mutex_unlock(
 							&dci_health_mutex);
 						break;
@@ -234,6 +288,7 @@ void extract_dci_events(unsigned char *buf)
 						, total_event_len);
 					entry->data_len += 4 + total_event_len;
 				}
+				mutex_unlock(&entry->data_mutex);
 				mutex_unlock(&dci_health_mutex);
 			}
 		}
@@ -270,6 +325,7 @@ void extract_dci_log(unsigned char *buf)
 				return;
 			log_mask_ptr = log_mask_ptr + byte_offset;
 			mutex_lock(&dci_health_mutex);
+			mutex_lock(&entry->data_mutex);
 			if (*log_mask_ptr & byte_mask) {
 				pr_debug("\t log code %x needed by client %d",
 					 log_code, entry->client->tgid);
@@ -279,6 +335,8 @@ void extract_dci_log(unsigned char *buf)
 						pr_err("diag: DCI log drop\n");
 						driver->dci_client_tbl[i].
 								dropped_logs++;
+						mutex_unlock(
+							&entry->data_mutex);
 						mutex_unlock(
 							&dci_health_mutex);
 						return;
@@ -290,6 +348,7 @@ void extract_dci_log(unsigned char *buf)
 					    buf + 4, *(uint16_t *)(buf + 2));
 				entry->data_len += 4 + *(uint16_t *)(buf + 2);
 			}
+			mutex_unlock(&entry->data_mutex);
 			mutex_unlock(&dci_health_mutex);
 		}
 	}
@@ -407,6 +466,7 @@ int diag_send_dci_pkt(struct diag_master_table entry, unsigned char *buf,
 	if ((read_len + 9) >= USER_SPACE_DATA) {
 		pr_err("diag: dci: Invalid length while forming dci pkt in %s",
 								__func__);
+		mutex_unlock(&driver->dci_mutex);
 		return -EIO;
 	}
 
@@ -477,6 +537,7 @@ int diag_process_dci_transaction(unsigned char *buf, int len)
 
 	if (!temp) {
 		pr_err("diag: Invalid buffer in %s\n", __func__);
+		return -ENOMEM;
 	}
 
 	/* This is Pkt request/response transaction */
@@ -1062,6 +1123,9 @@ static int diag_dci_probe(struct platform_device *pdev)
 			diag_smd_notify);
 		driver->smd_dci[index].ch_save =
 			driver->smd_dci[index].ch;
+		driver->dci_device = &pdev->dev;
+		driver->dci_device->power.wakeup = wakeup_source_register
+							("DIAG_DCI_WS");
 		if (err)
 			pr_err("diag: In %s, cannot open DCI port, Id = %d, err: %d\n",
 				__func__, pdev->id, err);
@@ -1084,6 +1148,9 @@ static int diag_dci_cmd_probe(struct platform_device *pdev)
 			diag_smd_notify);
 		driver->smd_dci_cmd[index].ch_save =
 			driver->smd_dci_cmd[index].ch;
+		driver->dci_cmd_device = &pdev->dev;
+		driver->dci_cmd_device->power.wakeup = wakeup_source_register
+							("DIAG_DCI_CMD_WS");
 		if (err)
 			pr_err("diag: In %s, cannot open DCI port, Id = %d, err: %d\n",
 				__func__, pdev->id, err);
@@ -1135,10 +1202,13 @@ int diag_dci_init(void)
 	driver->dci_tag = 0;
 	driver->dci_client_id = 0;
 	driver->num_dci_client = 0;
+	driver->dci_device = NULL;
+	driver->dci_cmd_device = NULL;
 	mutex_init(&driver->dci_mutex);
 	mutex_init(&dci_log_mask_mutex);
 	mutex_init(&dci_event_mask_mutex);
 	mutex_init(&dci_health_mutex);
+	spin_lock_init(&ws_lock);
 
 	for (i = 0; i < NUM_SMD_DCI_CHANNELS; i++) {
 		success = diag_smd_constructor(&driver->smd_dci[i], i,
@@ -1201,6 +1271,10 @@ err:
 
 	if (driver->diag_dci_wq)
 		destroy_workqueue(driver->diag_dci_wq);
+	mutex_destroy(&driver->dci_mutex);
+	mutex_destroy(&dci_log_mask_mutex);
+	mutex_destroy(&dci_event_mask_mutex);
+	mutex_destroy(&dci_health_mutex);
 	return DIAG_DCI_NO_REG;
 }
 
@@ -1214,8 +1288,10 @@ void diag_dci_exit(void)
 	platform_driver_unregister(&msm_diag_dci_driver);
 
 	if (driver->dci_client_tbl) {
-		for (i = 0; i < MAX_DCI_CLIENTS; i++)
+		for (i = 0; i < MAX_DCI_CLIENTS; i++) {
 			kfree(driver->dci_client_tbl[i].dci_data);
+			mutex_destroy(&driver->dci_client_tbl[i].data_mutex);
+		}
 	}
 
 	if (driver->supports_separate_cmdrsp) {
@@ -1341,4 +1417,48 @@ int diag_dci_query_event_mask(uint16_t event_id)
 	return 0;
 }
 
+uint8_t diag_dci_get_cumulative_real_time()
+{
+	uint8_t real_time = MODE_NONREALTIME, i;
+	for (i = 0; i < MAX_DCI_CLIENTS; i++)
+		if (driver->dci_client_tbl[i].client &&
+				driver->dci_client_tbl[i].real_time ==
+				MODE_REALTIME) {
+			real_time = 1;
+			break;
+		}
+	return real_time;
+}
 
+int diag_dci_set_real_time(int client_id, uint8_t real_time)
+{
+	int i = DCI_CLIENT_INDEX_INVALID;
+	i = diag_dci_find_client_index(client_id);
+
+	if (i != DCI_CLIENT_INDEX_INVALID)
+		driver->dci_client_tbl[i].real_time = real_time;
+	return i;
+}
+
+void diag_dci_try_activate_wakeup_source(smd_channel_t *channel)
+{
+	spin_lock_irqsave(&ws_lock, ws_lock_flags);
+	if (channel == driver->smd_dci[MODEM_DATA].ch) {
+		pm_wakeup_event(driver->dci_device, DCI_WAKEUP_TIMEOUT);
+		pm_stay_awake(driver->dci_device);
+	} else if (channel == driver->smd_dci_cmd[MODEM_DATA].ch) {
+		pm_wakeup_event(driver->dci_cmd_device, DCI_WAKEUP_TIMEOUT);
+		pm_stay_awake(driver->dci_cmd_device);
+	}
+	spin_unlock_irqrestore(&ws_lock, ws_lock_flags);
+}
+
+void diag_dci_try_deactivate_wakeup_source(smd_channel_t *channel)
+{
+	spin_lock_irqsave(&ws_lock, ws_lock_flags);
+	if (channel == driver->smd_dci[MODEM_DATA].ch)
+		pm_relax(driver->dci_device);
+	else if (channel == driver->smd_dci_cmd[MODEM_DATA].ch)
+		pm_relax(driver->dci_cmd_device);
+	spin_unlock_irqrestore(&ws_lock, ws_lock_flags);
+}

@@ -21,6 +21,9 @@
 #include <linux/evm.h>
 #include <linux/fsnotify.h>
 #include <net/flow.h>
+#if defined(CONFIG_SECURITY_SONY_RIC) && !defined(CONFIG_DEFAULT_SECURITY_SONY)
+#include "sony/ric.h"
+#endif
 
 #define MAX_LSM_EVM_XATTR	2
 
@@ -129,6 +132,26 @@ int __init register_security(struct security_operations *ops)
 }
 
 /* Security operations */
+
+int security_binder_set_context_mgr(struct task_struct *mgr)
+{
+	return security_ops->binder_set_context_mgr(mgr);
+}
+
+int security_binder_transaction(struct task_struct *from, struct task_struct *to)
+{
+	return security_ops->binder_transaction(from, to);
+}
+
+int security_binder_transfer_binder(struct task_struct *from, struct task_struct *to)
+{
+	return security_ops->binder_transfer_binder(from, to);
+}
+
+int security_binder_transfer_file(struct task_struct *from, struct task_struct *to, struct file *file)
+{
+	return security_ops->binder_transfer_file(from, to, file);
+}
 
 int security_ptrace_access_check(struct task_struct *child, unsigned int mode)
 {
@@ -263,6 +286,13 @@ int security_sb_statfs(struct dentry *dentry)
 int security_sb_mount(char *dev_name, struct path *path,
                        char *type, unsigned long flags, void *data)
 {
+#if defined(CONFIG_SECURITY_SONY_RIC) && !defined(CONFIG_DEFAULT_SECURITY_SONY)
+	int ret;
+
+	ret = sony_ric_mount(dev_name, path, type, flags, data);
+	if (ret)
+		return ret;
+#endif
 	return security_ops->sb_mount(dev_name, path, type, flags, data);
 }
 

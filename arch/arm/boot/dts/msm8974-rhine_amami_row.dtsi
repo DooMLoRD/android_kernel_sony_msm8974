@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2013 Sony Mobile Communications AB.
  *
- * Author: Shougo Watanabe <Shougo.X.Watanabe@sonymobile.com>
+ * Author: Kouhei Fujiya <Kouhei.X.Fujiya@sonymobile.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,12 +14,24 @@
  * GNU General Public License for more details.
  */
 
+/include/ "dsi-panel-amami.dtsi"
+
 &soc {
 	qcom,hdmi_tx@fd922100 {
 		status = "ok";
 	};
 
-	/* BLSP1-1 */
+	/* BLSP2 */
+	serial@f991e000 {
+		status = "ok";
+	};
+
+	/* BLSP7 */
+	uart7: uart@f995d000 {
+		status = "disabled";
+	};
+
+	/* BLSP2 */
 	i2c_2: i2c@f9924000 {
 		cell-index = <0>;
 		compatible = "qcom,i2c-qup";
@@ -35,14 +47,35 @@
 			touch_vdd-supply = <&pm8941_l22>;
 			touch_vio-supply = <&pm8941_s3>;
 			synaptics,irq_gpio = <&msmgpio 61 0x00>;
+			glove_enabled = <0>;
 			preset_x_max = <719>;
 			preset_y_max = <1279>;
 			preset_n_fingers = <10>;
 			preset_n_bytes_per_object = <5>;
 		};
+
+		atmel_mxt_ts@4a {
+			status = "disabled";
+		};
 	};
 
-	/* BLSP1-5 */
+	/* BLSP4 */
+	i2c@f9926000 {
+		cell-index = <1>;
+		compatible = "qcom,i2c-qup";
+		reg = <0xf9926000 0x1000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg-names = "qup_phys_addr";
+		interrupts = <0 98 0>;
+		interrupt-names = "qup_err_intr";
+		qcom,i2c-bus-freq = <355000>;
+		qcom,i2c-src-freq = <50000000>;
+		qcom,master-id = <86>;
+		status = "ok";
+	};
+
+	/* BLSP6 */
 	i2c@f9928000 {
 		cell-index = <2>;
 		compatible = "qcom,i2c-qup";
@@ -70,7 +103,7 @@
 		};
 	};
 
-	/* BLSP2-4 */
+	/* BLSP11 */
 	i2c_0: i2c@f9967000 {
 		cell-index = <4>;
 		qcom,i2c-bus-freq = <355000>;
@@ -84,6 +117,28 @@
 			mhl-pwr-gpio = <&msmgpio 60 0>;
 			mhl-rst-gpio = <&msmgpio 16 0>;
 			qcom,hdmi-tx-map = <&mdss_hdmi_tx>;
+		};
+
+		isa1200@48 {
+			status = "disabled";
+		};
+	};
+
+	/* BLSP1 */
+	spi_0: spi@f9923000 {
+		status = "disabled";
+
+		ethernet-switch@2 {
+			status = "disabled";
+		};
+	};
+
+	/* BLSP10 */
+	spi_7: spi_epm: spi@f9966000 {
+		status = "disabled";
+
+		epm-adc@0 {
+			status = "disabled";
 		};
 	};
 
@@ -139,15 +194,16 @@
 		};
 	};
 
-	qcom,cam_server {
-		compatible = "qcom,cam_server";
-		reg = <0xfd8C0000 0x10000>;
-		reg-names = "server";
-	};
-
 	qcom,cci@fda0C000 {
-		qcom,hw-thigh = <22>;
-		qcom,hw-tlow = <33>;
+		qcom,cci-master0 {
+			qcom,hw-thigh = <22>;
+			qcom,hw-tlow = <33>;
+		};
+
+		qcom,cci-master1 {
+			qcom,hw-thigh = <22>;
+			qcom,hw-tlow = <33>;
+		};
 
 		qcom,camera@20 {
 			compatible = "qcom,sony_camera_0";
@@ -191,7 +247,7 @@
 			sony,gpio_af = <0>;
 			sony,subdev_code = <0x3007>;
 
-			sony,power_sequence {
+			sony,camera_modules {
 				module_names = "GENERIC", "SOI20BS0", "SOI08BS2",
 						"SOI13BS2", "SEM13BS1", "SOI13BS9";
 				default_module_name = "SOI20BS0";
@@ -491,7 +547,7 @@
 			sony,gpio_af = <0>;
 			sony,subdev_code = <0x3007>;
 
-			sony,power_sequence {
+			sony,camera_modules {
 				module_names = "GENERIC", "LGI02BN0",
 						"SEM02BN0", "LGI02BN1",
 						"SEM02BN1";
@@ -700,16 +756,6 @@
 		};
 	};
 
-	qcom,mdss_mdp@fd900000 {
-		mdss_fb0: qcom,mdss_fb_primary {
-			qcom,memory-reservation-size = <0x1000000>; /* size 16MB */
-		};
-	};
-
-	mdss_dsi0: qcom,mdss_dsi@fd922800 {
-		vdd-supply = <&pm8941_lvs3>;
-	};
-
 	sound {
 		qcom,audio-routing =
 			"RX_BIAS", "MCLK",
@@ -732,6 +778,18 @@
 			"MIC BIAS4 External", "Handset FB ANC Mic";
 	};
 
+	qcom,ion {
+		compatible = "qcom,msm-ion";
+
+		qcom,ion-heap@20 { /* CAMERA HEAP */
+			compatible = "qcom,msm-ion-reserve";
+			reg = <20>;
+			qcom,heap-align = <0x1000>;
+			qcom,memory-reservation-type = "EBI1"; /* reserve EBI memory */
+			qcom,memory-reservation-size = <0x6400000>;
+		};
+	};
+
 	gpio_hw_ids {
 		compatible = "gpio_hw_ids";
 
@@ -741,6 +799,9 @@
 			<&pm8941_gpios 14 0>;
 	};
 
+	qcom,msm-thermal {
+		qcom,pmic-sw-mode-regs = "vdd_dig";
+	};
 };
 
 &mdss_hdmi_tx {
@@ -748,24 +809,24 @@
 	qcom,hdmi-tx-supply-names = "hpd-gdsc", "core-vdda", "core-vcc";
 	qcom,hdmi-tx-min-voltage-level = <0 1800000 1800000>;
 	qcom,hdmi-tx-max-voltage-level = <0 1800000 1800000>;
-	qcom,hdmi-tx-peak-current = <0 1800000 0>;
+	qcom,hdmi-tx-peak-current = <0 300000 0>;
 };
 
 &pm8941_chg {
 	qcom,vddmax-mv = <4350>;
 	qcom,vddsafe-mv = <4400>;
-	qcom,ibatmax-ma = <1600>;
-	qcom,ibatterm-ma = <100>;
-	qcom,ibatsafe-ma = <1600>;
+	qcom,ibatmax-ma = <1300>;
+	qcom,ibatterm-ma = <115>;
+	qcom,ibatsafe-ma = <1300>;
 	qcom,maxinput-dc-ma = <1800>;
 	qcom,maxinput-usb-ma = <1500>;
-	qcom,cool-bat-mv = <4200>;
+	qcom,cool-bat-mv = <4350>;
 	qcom,ibatmax-warm-ma = <650>;
 	qcom,warm-bat-mv = <4200>;
 	qcom,ibatmax-cool-ma = <650>;
 	qcom,vbatdet-delta-mv = <20>;
 	qcom,vbatdet-delta-soc = <1>;
-	qcom,thermal-mitigation = <1600 1500 1100 900 700 500 300 200 100 0>;
+	qcom,thermal-mitigation = <1300 1300 1100 900 700 500 300 200 100 0>;
 	qcom,tchg-mins = <512>;
 };
 
@@ -776,15 +837,11 @@
 	qcom,low-soc-calculate-soc-threshold = <5>;
 	qcom,low-soc-calculate-soc-ms = <1000>;
 	qcom,calculate-soc-ms = <30000>;
+	qcom,chg-term-ua = <115000>;
 	qcom,use-external-rsense = <1>;
 	qcom,batt-type = <3>;
 	qcom,shutdown-soc-valid-limit = <40>;
 	qcom,clamp-soc-max-count = <2>;
-	qcom,enable-fcc-learning;
-	qcom,min-fcc-learning-soc = <20>;
-	qcom,min-fcc-ocv-pc = <30>;
-	qcom,min-fcc-learning-samples = <5>;
-	qcom,fcc-resolution = <10>;
 };
 
 &pm8941_gpios {
@@ -1169,8 +1226,10 @@
 				linux,name = "wled:backlight";
 				linux,default-trigger = "bkl-trigger";
 				qcom,cs-out-en = <1>;
+				qcom,cabc-en = <1>;
 				qcom,op-fdbck = <0>;
 				qcom,default-state = "on";
+				qcom,default-br = <1000>;
 				qcom,max-current = <20>;
 				qcom,ctrl-delay-us = <0>;
 				qcom,boost-curr-lim = <3>;
@@ -1228,7 +1287,11 @@
 
 		somc,leds@d300 {
 			status = "okay";
+			compatible = "somc,pm8941-flash";
+			reg = <0xd300 0x100>;
 			label = "flash";
+			torch-supply = <&pm8941_boost>;
+			flash-supply = <&pm8941_chg_boost>;
 			somc,headroom = <2>;
 			somc,clamp-curr-mA = <200>;
 			somc,startup-dly = <3>;
@@ -1270,6 +1333,8 @@
 };
 
 &pm8941_boost { /* VREG_5V */
+	regulator-min-microvolt = <5100000>;
+	regulator-max-microvolt = <5100000>;
 	status = "ok";
 };
 
@@ -1284,7 +1349,9 @@
 &pm8941_l3 {
 	regulator-min-microvolt = <1200000>;
 	regulator-max-microvolt = <1200000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <1200000>;
+	qcom,init-ldo-mode = <1>;
 	status = "ok";
 };
 
@@ -1343,13 +1410,16 @@
 &pm8941_l17 {
 	regulator-min-microvolt = <2700000>;
 	regulator-max-microvolt = <2700000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <2700000>;
+	qcom,init-ldo-mode = <1>;
 	status = "ok";
 };
 
 &pm8941_l18 {
 	regulator-min-microvolt = <2850000>;
 	regulator-max-microvolt = <2850000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <2850000>;
 	status = "ok";
 };
@@ -1378,6 +1448,7 @@
 &pm8941_l22 {
 	regulator-min-microvolt = <3000000>;
 	regulator-max-microvolt = <3000000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <3000000>;
 	status = "ok";
 };
@@ -1385,7 +1456,9 @@
 &pm8941_l23 {
 	regulator-min-microvolt = <2800000>;
 	regulator-max-microvolt = <2800000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <2800000>;
+	qcom,init-ldo-mode = <1>;
 	status = "ok";
 };
 
@@ -1394,19 +1467,23 @@
 };
 
 &pm8941_lvs1 {
+	qcom,init-enable = <0>;
 	status = "ok";
 };
 
 &pm8941_lvs2 {
+	qcom,init-enable = <0>;
 	status = "ok";
 };
 
 &pm8941_lvs3 {
+	qcom,init-enable = <0>;
 	status = "ok";
 };
 
 &pm8941_mvs1 { /* VREG_OTG */
 	qcom,ocp-enable = <1>;
+	qcom,pull-down-enable = <1>;
 	status = "ok";
 };
 
@@ -1461,18 +1538,16 @@
 
 &usb3 {
 	qcom,dwc-hsphy-init = <0x00D0CC27>;
-	interrupt-parent = <&usb3>;
-	interrupts = <0 1>;
-	#interrupt-cells = <1>;
-	interrupt-map-mask = <0x0 0xffffffff>;
-	interrupt-map = <0x0 0 &intc 0 133 0
-			 0x0 1 &spmi_bus 0x0 0x0 0x9 0x0>;
-	interrupt-names = "hs_phy_irq", "pmic_id_irq";
-	qcom,misc-ref = <&pm8941_misc>;
 };
 
 &spmi_bus {
 	qcom,pm8941@0 {
+		vadc@3100 {
+			chan@b4 {
+				qcom,scale-function = <8>;
+			};
+		};
+
 		qcom,vadc@3400 {
 			chan@30 {
 				qcom,hw-settle-time = <15>;
@@ -1485,6 +1560,55 @@
 			chan@6 {
 				qcom,hw-settle-time = <15>;
 			};
+
+			chan@b4 {
+				qcom,scale-function = <4>;
+			};
 		};
+	};
+};
+
+&mdss_mdp {
+	qcom,mdss-pref-prim-intf = "dsi";
+};
+
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&dsi_novatek_default>;
+	vdd-supply = <&pm8941_lvs3>;
+	qcom,platform-enable-gpio = <&msmgpio 58 1>;
+	qcom,platform-te-gpio = <&msmgpio 12 1>;
+	qcom,platform-lane-config = [];
+	qcom,platform-supply-entry1 {
+			qcom,supply-name = "vdd";
+			qcom,supply-min-voltage = <0>;
+			qcom,supply-max-voltage = <0>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-pre-on-sleep = <0>;
+			qcom,supply-post-on-sleep = <0>;
+			qcom,supply-pre-off-sleep = <0>;
+			qcom,supply-post-off-sleep = <0>;
+	};
+	qcom,platform-supply-entry2 {
+			qcom,supply-name = "vddio";
+			qcom,supply-min-voltage = <1800000>;
+			qcom,supply-max-voltage = <1800000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-pre-on-sleep = <0>;
+			qcom,supply-post-on-sleep = <0>;
+			qcom,supply-pre-off-sleep = <0>;
+			qcom,supply-post-off-sleep = <0>;
+	};
+	qcom,platform-supply-entry3 {
+			qcom,supply-name = "vdda";
+			qcom,supply-min-voltage = <1200000>;
+			qcom,supply-max-voltage = <1200000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-pre-on-sleep = <0>;
+			qcom,supply-post-on-sleep = <0>;
+			qcom,supply-pre-off-sleep = <0>;
+			qcom,supply-post-off-sleep = <0>;
 	};
 };

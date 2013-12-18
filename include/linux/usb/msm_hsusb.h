@@ -26,6 +26,7 @@
 #include <linux/pm_qos.h>
 #include <linux/hrtimer.h>
 #include <linux/power_supply.h>
+#include <linux/cdev.h>
 /*
  * The following are bit fields describing the usb_request.udc_priv word.
  * These bit fields are set by function drivers that wish to queue
@@ -40,6 +41,20 @@
 #define MSM_ETD_IOC			BIT(9)
 #define MSM_INTERNAL_MEM		BIT(10)
 #define MSM_VENDOR_ID			BIT(16)
+
+/**
+ * Requested USB votes for BUS bandwidth
+ *
+ * USB_NO_PERF_VOTE     BUS Vote for inactive USB session or disconnect
+ * USB_MAX_PERF_VOTE    Maximum BUS bandwidth vote
+ * USB_MIN_PERF_VOTE    Minimum BUS bandwidth vote (for some hw same as NO_PERF)
+ *
+ */
+enum usb_bus_vote {
+	USB_NO_PERF_VOTE = 0,
+	USB_MAX_PERF_VOTE,
+	USB_MIN_PERF_VOTE,
+};
 
 /**
  * Supported USB modes
@@ -151,6 +166,7 @@ enum usb_chg_type {
 	USB_ACA_C_CHARGER,
 	USB_ACA_DOCK_CHARGER,
 	USB_PROPRIETARY_CHARGER,
+	USB_FLOATED_CHARGER,
 };
 
 /**
@@ -189,6 +205,10 @@ enum usb_vdd_value {
  * @pmic_id_irq: IRQ number assigned for PMIC USB ID line.
  * @mpm_otgsessvld_int: MPM wakeup pin assigned for OTG SESSVLD
  *              interrupt. Used when .otg_control == OTG_PHY_CONTROL.
+ * @mpm_dpshv_int: MPM wakeup pin assigned for DP SHV interrupt.
+ *		Used during host bus suspend.
+ * @mpm_dmshv_int: MPM wakeup pin assigned for DM SHV interrupt.
+ *		Used during host bus suspend.
  * @mhl_enable: indicates MHL connector or not.
  * @disable_reset_on_disconnect: perform USB PHY and LINK reset
  *              on USB cable disconnection.
@@ -204,6 +224,12 @@ enum usb_vdd_value {
  * @enable_sec_phy: Use second HSPHY with USB2 core
  * @bus_scale_table: parameters for bus bandwidth requirements
  * @mhl_dev_name: MHL device name used to register with MHL driver.
+ * @log2_itc: value of 2^(log2_itc-1) will be used as the
+ *              interrupt threshold (ITC), when log2_itc is
+ *              between 1 to 7.
+ * @l1_supported: enable link power management support.
+ * @dpdm_pulldown_added: Indicates whether pull down resistors are
+		connected on data lines or not.
  */
 struct msm_otg_platform_data {
 	int *phy_init_seq;
@@ -216,6 +242,8 @@ struct msm_otg_platform_data {
 	void (*setup_gpio)(enum usb_otg_state state);
 	int pmic_id_irq;
 	unsigned int mpm_otgsessvld_int;
+	unsigned int mpm_dpshv_int;
+	unsigned int mpm_dmshv_int;
 	bool mhl_enable;
 	bool disable_reset_on_disconnect;
 	bool pnoc_errata_fix;
@@ -227,6 +255,9 @@ struct msm_otg_platform_data {
 	bool enable_sec_phy;
 	struct msm_bus_scale_pdata *bus_scale_table;
 	const char *mhl_dev_name;
+	int log2_itc;
+	bool l1_supported;
+	bool dpdm_pulldown_added;
 };
 
 /* phy related flags */
@@ -281,8 +312,8 @@ struct msm_otg_platform_data {
  * @async_irq: IRQ number used by some controllers during low power state
  * @clk: clock struct of alt_core_clk.
  * @pclk: clock struct of iface_clk.
- * @phy_reset_clk: clock struct of phy_clk.
  * @core_clk: clock struct of core_bus_clk.
+ * @sleep_clk: clock struct of sleep_clk for USB PHY.
  * @core_clk_rate: core clk max frequency
  * @regs: ioremapped register base address.
  * @inputs: OTG state machine inputs(Id, SessValid etc).
@@ -305,6 +336,7 @@ struct msm_otg_platform_data {
  * @xo_handle: TCXO buffer handle
  * @bus_perf_client: Bus performance client handle to request BUS bandwidth
  * @mhl_enabled: MHL driver registration successful and MHL enabled.
+ * @host_bus_suspend: indicates host bus suspend or not.
  * @chg_check_timer: The timer used to implement the workaround to detect
  *               very slow plug in of wall charger.
  */
@@ -316,9 +348,10 @@ struct msm_otg {
 	struct clk *xo_clk;
 	struct clk *clk;
 	struct clk *pclk;
-	struct clk *phy_reset_clk;
 	struct clk *core_clk;
+	struct clk *sleep_clk;
 	long core_clk_rate;
+	struct resource *io_res;
 	void __iomem *regs;
 #define ID		0
 #define B_SESS_VLD	1
@@ -360,6 +393,7 @@ struct msm_otg {
 	struct msm_xo_voter *xo_handle;
 	uint32_t bus_perf_client;
 	bool mhl_enabled;
+	bool host_bus_suspend;
 	struct timer_list chg_check_timer;
 	/*
 	 * Allowing PHY power collpase turns off the HSUSB 3.3v and 1.8v
@@ -384,6 +418,11 @@ struct msm_otg {
 	 * analog regulators into LPM while going to USB low power mode.
 	 */
 #define ALLOW_PHY_REGULATORS_LPM	BIT(3)
+	/*
+	 * Allow PHY RETENTION mode before turning off the digital
+	 * voltage regulator(VDDCX) during host mode.
+	 */
+#define ALLOW_HOST_PHY_RETENTION	BIT(4)
 	unsigned long lpm_flags;
 #define PHY_PWR_COLLAPSED		BIT(0)
 #define PHY_RETENTIONED			BIT(1)
@@ -399,7 +438,27 @@ struct msm_otg {
 	struct power_supply usb_psy;
 	unsigned int online;
 	unsigned int host_mode;
+	unsigned int voltage_max;
 	unsigned int current_max;
+
+	dev_t ext_chg_dev;
+	struct cdev ext_chg_cdev;
+	struct class *ext_chg_class;
+	struct device *ext_chg_device;
+	bool ext_chg_opened;
+	bool ext_chg_active;
+	struct completion ext_chg_wait;
+};
+
+struct ci13xxx_platform_data {
+	u8 usb_core_id;
+	/*
+	 * value of 2^(log2_itc-1) will be used as the interrupt threshold
+	 * (ITC), when log2_itc is between 1 to 7.
+	 */
+	int log2_itc;
+	void *prv_data;
+	bool l1_supported;
 };
 
 /**
@@ -416,6 +475,7 @@ struct msm_hsic_host_platform_data {
 	bool ignore_cal_pad_config;
 	bool phy_sof_workaround;
 	bool phy_susp_sof_workaround;
+	u32 reset_delay;
 	int strobe_pad_offset;
 	int data_pad_offset;
 
@@ -435,6 +495,7 @@ struct msm_hsic_host_platform_data {
 	bool disable_park_mode;
 	bool consider_ipa_handshake;
 	bool ahb_async_bridge_bypass;
+	bool disable_cerr;
 };
 
 struct msm_usb_host_platform_data {
@@ -442,6 +503,8 @@ struct msm_usb_host_platform_data {
 	int pmic_gpio_dp_irq;
 	unsigned int dock_connect_irq;
 	bool use_sec_phy;
+	bool no_selective_suspend;
+	int resume_gpio;
 };
 
 /**
@@ -457,7 +520,7 @@ struct msm_hsic_peripheral_platform_data {
 /**
  * struct usb_ext_notification: event notification structure
  * @notify: pointer to client function to call when ID event is detected.
- *          The last parameter is provided by driver to be called back when
+ *          The function parameter is provided by driver to be called back when
  *          external client indicates it is done using the USB. This function
  *          should return 0 if handled successfully, otherise an error code.
  * @ctxt: client-specific context pointer
@@ -471,17 +534,19 @@ struct msm_hsic_peripheral_platform_data {
  * called with the online parameter set to false.
  */
 struct usb_ext_notification {
-	int (*notify)(void *, int, void (*)(int online));
+	int (*notify)(void *, int, void (*)(void *, int online), void *);
 	void *ctxt;
 };
 #ifdef CONFIG_USB_BAM
 bool msm_bam_lpm_ok(void);
+void msm_bam_notify_lpm_resume(void);
 void msm_bam_set_hsic_host_dev(struct device *dev);
 void msm_bam_wait_for_hsic_prod_granted(void);
 bool msm_bam_hsic_lpm_ok(void);
 void msm_bam_hsic_notify_on_resume(void);
 #else
 static inline bool msm_bam_lpm_ok(void) { return true; }
+static inline void msm_bam_notify_lpm_resume(void) {}
 static inline void msm_bam_set_hsic_host_dev(struct device *dev) {}
 static inline void msm_bam_wait_for_hsic_prod_granted(void) {}
 static inline bool msm_bam_hsic_lpm_ok(void) { return true; }
@@ -498,10 +563,11 @@ static inline void msm_hw_bam_disable(bool bam_disable)
 #ifdef CONFIG_USB_DWC3_MSM
 int msm_ep_config(struct usb_ep *ep);
 int msm_ep_unconfig(struct usb_ep *ep);
+void dwc3_tx_fifo_resize_request(struct usb_ep *ep, bool qdss_enable);
 int msm_data_fifo_config(struct usb_ep *ep, u32 addr, u32 size,
 	u8 dst_pipe_idx);
 
-void msm_dwc3_restart_usb_session(void);
+void msm_dwc3_restart_usb_session(struct usb_gadget *gadget);
 
 int msm_register_usb_ext_notification(struct usb_ext_notification *info);
 #else
@@ -521,7 +587,13 @@ static inline int msm_ep_unconfig(struct usb_ep *ep)
 	return -ENODEV;
 }
 
-static inline void msm_dwc3_restart_usb_session(void)
+static inline void dwc3_tx_fifo_resize_request(
+					struct usb_ep *ep, bool qdss_enable)
+{
+	return;
+}
+
+static inline void msm_dwc3_restart_usb_session(struct usb_gadget *gadget)
 {
 	return;
 }

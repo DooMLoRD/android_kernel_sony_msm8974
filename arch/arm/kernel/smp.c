@@ -558,14 +558,16 @@ static void percpu_timer_stop(void)
 
 static DEFINE_RAW_SPINLOCK(stop_lock);
 
+DEFINE_PER_CPU(struct pt_regs, regs_before_stop);
 /*
  * ipi_cpu_stop - handle IPI from smp_send_stop()
  */
-static void ipi_cpu_stop(unsigned int cpu)
+static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 {
 	if (system_state == SYSTEM_BOOTING ||
 	    system_state == SYSTEM_RUNNING ||
 	    oops_in_progress) {
+		per_cpu(regs_before_stop, cpu) = *regs;
 		raw_spin_lock(&stop_lock);
 		printk(KERN_CRIT "CPU%u: stopping\n", cpu);
 		dump_stack();
@@ -576,6 +578,14 @@ static void ipi_cpu_stop(unsigned int cpu)
 
 	local_fiq_disable();
 	local_irq_disable();
+#ifdef CONFIG_CRASH_NOTES
+	if (system_state == SYSTEM_BOOTING || system_state == SYSTEM_RUNNING)
+		crash_notes_save_this_cpu(CRASH_NOTE_STOPPING,
+					smp_processor_id());
+#endif
+
+	flush_cache_all();
+
 #ifdef CONFIG_CRASH_NOTES
 	if (system_state == SYSTEM_BOOTING ||
 	    system_state == SYSTEM_RUNNING ||
@@ -685,7 +695,7 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	case IPI_CPU_STOP:
 		irq_enter();
-		ipi_cpu_stop(cpu);
+		ipi_cpu_stop(cpu, regs);
 		irq_exit();
 		break;
 

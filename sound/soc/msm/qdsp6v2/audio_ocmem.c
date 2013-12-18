@@ -454,15 +454,6 @@ int audio_ocmem_enable(int cid)
 
 			}
 
-			if (test_bit_pos(audio_ocmem_lcl.audio_state,
-						OCMEM_STATE_DISABLE) ||
-			    test_bit_pos(audio_ocmem_lcl.audio_state,
-			     OCMEM_STATE_FREE)) {
-				pr_info("%s: audio already freed from ocmem, state[0x%x]\n",
-					__func__,
-				atomic_read(&audio_ocmem_lcl.audio_state));
-				goto fail_cmd2;
-			}
 			pr_debug("%s: calling ocmem free, state:0x%x\n",
 				__func__,
 				atomic_read(&audio_ocmem_lcl.audio_state));
@@ -500,11 +491,7 @@ int audio_ocmem_enable(int cid)
 				ret);
 				goto fail_cmd2;
 			}
-			set_bit_pos(audio_ocmem_lcl.audio_state,
-					OCMEM_STATE_FREE);
-			pr_debug("%s: ocmem_free success, state[0x%x]\n",
-				 __func__,
-				 atomic_read(&audio_ocmem_lcl.audio_state));
+			pr_debug("%s: ocmem_free success\n", __func__);
 		/* Fall through */
 		case OCMEM_STATE_SSR:
 			msm_bus_scale_client_update_request(
@@ -530,8 +517,6 @@ fail_cmd1:
 	ret = ocmem_free(OCMEM_LP_AUDIO, audio_ocmem_lcl.buf);
 	if (ret)
 		pr_err("%s: ocmem_free failed\n", __func__);
-	set_bit_pos(audio_ocmem_lcl.audio_state,
-		    OCMEM_STATE_FREE);
 fail_cmd2:
 	mutex_unlock(&audio_ocmem_lcl.state_process_lock);
 fail_cmd:
@@ -725,8 +710,7 @@ int audio_ocmem_process_req(int id, bool enable)
 			audio_ocmem_lcl.ocmem_en = true;
 	}
 
-	if (audio_ocmem_lcl.ocmem_en &&
-	    (!enable || !audio_ocmem_lcl.audio_ocmem_running)) {
+	if (audio_ocmem_lcl.ocmem_en) {
 		if (audio_ocmem_lcl.audio_ocmem_workqueue == NULL) {
 			pr_err("%s: audio ocmem workqueue is NULL\n",
 								__func__);

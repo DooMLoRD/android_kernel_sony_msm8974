@@ -124,6 +124,8 @@ static void z180_cmdwindow_write(struct kgsl_device *device,
 	| (MMU_CONFIG << MH_MMU_CONFIG__TC_R_CLNT_BEHAVIOR__SHIFT)   \
 	| (MMU_CONFIG << MH_MMU_CONFIG__PA_W_CLNT_BEHAVIOR__SHIFT))
 
+#define KGSL_LOG_LEVEL_DEFAULT 3
+
 static const struct kgsl_functable z180_functable;
 
 static struct z180_device device_2d0 = {
@@ -149,6 +151,13 @@ static struct z180_device device_2d0 = {
 		},
 		.iomemname = KGSL_2D0_REG_MEMORY,
 		.ftbl = &z180_functable,
+		.cmd_log = KGSL_LOG_LEVEL_DEFAULT,
+		.ctxt_log = KGSL_LOG_LEVEL_DEFAULT,
+		.drv_log = KGSL_LOG_LEVEL_DEFAULT,
+		.mem_log = KGSL_LOG_LEVEL_DEFAULT,
+		.pwr_log = KGSL_LOG_LEVEL_DEFAULT,
+		.ft_log = KGSL_LOG_LEVEL_DEFAULT,
+		.pm_dump_enable = 0,
 	},
 	.cmdwin_lock = __SPIN_LOCK_INITIALIZER(device_2d1.cmdwin_lock),
 };
@@ -580,7 +589,6 @@ static int z180_start(struct kgsl_device *device)
 
 	z180_cmdstream_start(device);
 
-	mod_timer(&device->idle_timer, jiffies + FIRST_TIMEOUT);
 	kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_ON);
 	device->ftbl->irqctrl(device, 1);
 
@@ -919,11 +927,11 @@ static void z180_power_stats(struct kgsl_device *device,
 	}
 }
 
-static void z180_irqctrl(struct kgsl_device *device, unsigned int mask)
+static void z180_irqctrl(struct kgsl_device *device, int state)
 {
 	/* Control interrupts for Z180 and the Z180 MMU */
 
-	if (mask) {
+	if (state) {
 		z180_regwrite(device, (ADDR_VGC_IRQENABLE >> 2), 3);
 		z180_regwrite(device, MH_INTERRUPT_MASK,
 			kgsl_mmu_get_int_mask());

@@ -65,10 +65,27 @@ Parent node optional properties:
 					detection, "bpd_thm_id" selects both.
 					If the property is not set, the temperatue pin will
 					be used.
+- qcom,btc-disabled:			If flag is set battery hot and cold monitoring is
+					disabled in hardware. This monitoring is turned on
+					by default.
+- qcom,batt-hot-percent:		Specify a supported hot threshold percentage.
+					Supported thresholds: 25% and 35%. If none is specified
+					hardware defaults will be used.
+- qcom,batt-cold-percent:		Specify a supported cold threshold percentage.
+					Supported thresholds: 70% and 80%. If none is specified
+					hardware defaults will be used.
 - otg-parent-supply			Specify a phandle to a parent supply regulator
 					for the OTG regulator.
 - boost-parent-supply			Specify a phandle to a parent supply regulator
 					for the boost regulator.
+- qcom,resume-soc			Capacity in percent at which charging should resume
+					when a fully charged battery drops below this level.
+- qcom,chg-vadc				Corresponding VADC device's phandle.
+- qcom,pmic-revid			The phandle to the revid node of the pmic on which charger
+					peripheral is present. This property is a must on PMIC chips
+					that exhibit inaccuracies in battery current readings. This
+					phandle is used to check the version of the PMIC and apply
+					necessary software workarounds.
 
 Sub node required structure:
 - A qcom,chg node must be a child of an SPMI node that has specified
@@ -77,6 +94,8 @@ Sub node required structure:
 	to the collective charging device. For example USB detection
 	and the battery interface are each seperate peripherals and
 	each should be their own subnode.
+- qcom,chg-adc_tm			Corresponding ADC TM device's phandle to set recurring
+					measurements and receive notification for batt_therm.
 
 Sub node required properties:
 - compatible:		Must be "qcom,qpnp-charger".
@@ -91,6 +110,7 @@ Sub node required properties:
 
 			qcom,usb-chgpth:
 			 - usbin-valid
+			 - usb-ocp (only for SMBBP and SMBCL)
 
 			qcom,chgr:
 			 - chg-done
@@ -137,6 +157,9 @@ Sub node required properties:
 			 - coarse-det-usb:	Coarse detect interrupt triggers
 						at low voltage on USB_IN.
 			 - chg-gone:		Triggers on VCHG line.
+			 - usb-ocp		Triggers on over current conditions when
+						reverse boosting. (Only available on
+						SMBCL and SMBBP devices).
 
 			qcom,dc-chgpth:
 			 - dcin-valid:		Indicates a valid DC charger
@@ -158,6 +181,9 @@ Sub node optional properties:
 			 - regulator-name:	A string used as a descriptive name
 						for the boost regulator.
 
+			qcom,batfet:
+			 - regulator-name:	A string used as a descriptive name
+						for the batfet regulator.
 Example:
 	pm8941-chg {
 		spmi-dev-container;
@@ -182,6 +208,12 @@ Example:
 		qcom,warm-bat-mv = <4100>;
 		qcom,ibatmax-cool-ma = <350>;
 		qcom,vbatdet-delta-mv = <60>;
+		qcom,batt-hot-percent = <25>;
+		qcom,batt-cold-percent = <85>;
+		qcom,btc-disabled = <0>;
+		qcom,chg-vadc = <&pm8941_vadc>;
+		qcom,chg-adc_tm = <&pm8941_adc_tm>;
+		qcom,pmic-revid = <&pm8941_revid>;
 
 		qcom,chgr@1000 {
 			reg = <0x1000 0x100>;
@@ -278,6 +310,10 @@ In regulator specific device tree file:
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		regulator-name = "8941_smbb_boost";
+	};
+
+	&pm8941_chg_batif  {
+		regulator-name = "batfet";
 	};
 
 	&pm8941_chg_otg {

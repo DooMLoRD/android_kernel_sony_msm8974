@@ -527,17 +527,17 @@ int mdss_mdp_wb_kickoff(struct msm_fb_data_type *mfd)
 		goto kickoff_fail;
 	}
 
-	ret = mdss_mdp_display_commit(ctl, &wb_args);
+	ret = mdss_mdp_writeback_display_commit(ctl, &wb_args);
 	if (ret) {
 		pr_err("error on commit ctl=%d\n", ctl->num);
 		goto kickoff_fail;
 	}
 
-	ret = wait_for_completion_interruptible_timeout(&comp, KOFF_TIMEOUT);
-	if (ret <= 0) {
+	ret = wait_for_completion_timeout(&comp, KOFF_TIMEOUT);
+	if (ret == 0)
 		WARN(1, "wfd kick off time out=%d ctl=%d", ret, ctl->num);
+	else
 		ret = 0;
-	}
 
 	if (wb && node) {
 		mutex_lock(&wb->lock);
@@ -577,6 +577,86 @@ int mdss_mdp_wb_set_mirr_hint(struct msm_fb_data_type *mfd, int hint)
 	}
 }
 
+int mdss_mdp_wb_get_format(struct msm_fb_data_type *mfd,
+					struct mdp_mixer_cfg *mixer_cfg)
+{
+	int dst_format;
+	struct mdss_mdp_ctl *ctl = mfd_to_ctl(mfd);
+
+	if (!ctl) {
+		pr_err("No panel data!\n");
+		return -EINVAL;
+	}
+
+	switch (ctl->dst_format) {
+	case MDP_RGB_888:
+		dst_format = WB_FORMAT_RGB_888;
+		break;
+	case MDP_RGB_565:
+		dst_format = WB_FORMAT_RGB_565;
+		break;
+	case MDP_XRGB_8888:
+		dst_format = WB_FORMAT_xRGB_8888;
+		break;
+	case MDP_ARGB_8888:
+		dst_format = WB_FORMAT_ARGB_8888;
+		break;
+	case MDP_BGRA_8888:
+		dst_format = WB_FORMAT_BGRA_8888;
+		break;
+	case MDP_BGRX_8888:
+		dst_format = WB_FORMAT_BGRX_8888;
+		break;
+	case MDP_Y_CBCR_H2V2_VENUS:
+		dst_format = WB_FORMAT_NV12;
+		break;
+	default:
+		return -EINVAL;
+	}
+	mixer_cfg->writeback_format = dst_format;
+	return 0;
+}
+
+int mdss_mdp_wb_set_format(struct msm_fb_data_type *mfd, int dst_format)
+{
+	struct mdss_mdp_ctl *ctl = mfd_to_ctl(mfd);
+
+	if (!ctl) {
+		pr_err("No panel data!\n");
+		return -EINVAL;
+	}
+
+	switch (dst_format) {
+	case WB_FORMAT_RGB_888:
+		ctl->dst_format = MDP_RGB_888;
+		break;
+	case WB_FORMAT_RGB_565:
+		ctl->dst_format = MDP_RGB_565;
+		break;
+	case WB_FORMAT_xRGB_8888:
+		ctl->dst_format = MDP_XRGB_8888;
+		break;
+	case WB_FORMAT_ARGB_8888:
+		ctl->dst_format = MDP_ARGB_8888;
+		break;
+	case WB_FORMAT_BGRA_8888:
+		ctl->dst_format = MDP_BGRA_8888;
+		break;
+	case WB_FORMAT_BGRX_8888:
+		ctl->dst_format = MDP_BGRX_8888;
+		break;
+	case WB_FORMAT_NV12:
+		ctl->dst_format = MDP_Y_CBCR_H2V2_VENUS;
+		break;
+	default:
+		pr_err("wfd format not supported\n");
+		return -EINVAL;
+	}
+
+	pr_debug("wfd format %d\n", ctl->dst_format);
+	return 0;
+}
+
 int mdss_mdp_wb_ioctl_handler(struct msm_fb_data_type *mfd, u32 cmd,
 				void *arg)
 {
@@ -595,7 +675,8 @@ int mdss_mdp_wb_ioctl_handler(struct msm_fb_data_type *mfd, u32 cmd,
 		break;
 	case MSMFB_WRITEBACK_QUEUE_BUFFER:
 		if (!copy_from_user(&data, arg, sizeof(data))) {
-			ret = mdss_mdp_wb_queue(mfd, arg, false);
+			ret = mdss_mdp_wb_queue(mfd, &data, false);
+			ret = copy_to_user(arg, &data, sizeof(data));
 		} else {
 			pr_err("wb queue buf failed on copy_from_user\n");
 			ret = -EFAULT;
@@ -603,7 +684,8 @@ int mdss_mdp_wb_ioctl_handler(struct msm_fb_data_type *mfd, u32 cmd,
 		break;
 	case MSMFB_WRITEBACK_DEQUEUE_BUFFER:
 		if (!copy_from_user(&data, arg, sizeof(data))) {
-			ret = mdss_mdp_wb_dequeue(mfd, arg);
+			ret = mdss_mdp_wb_dequeue(mfd, &data);
+			ret = copy_to_user(arg, &data, sizeof(data));
 		} else {
 			pr_err("wb dequeue buf failed on copy_from_user\n");
 			ret = -EFAULT;

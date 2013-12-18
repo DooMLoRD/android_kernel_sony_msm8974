@@ -87,6 +87,7 @@
 enum {
 	NOTIFY_UPDATE_START,
 	NOTIFY_UPDATE_STOP,
+	NOTIFY_UPDATE_POWER_OFF,
 };
 
 enum {
@@ -125,6 +126,15 @@ enum {
 	MDP_BGR_888,      /* BGR 888 */
 	MDP_Y_CBCR_H2V2_VENUS,
 	MDP_BGRX_8888,   /* BGRX 8888 */
+	MDP_RGBA_8888_TILE,	/* RGBA 8888 in tile format */
+	MDP_ARGB_8888_TILE,	/* ARGB 8888 in tile format */
+	MDP_ABGR_8888_TILE,	/* ABGR 8888 in tile format */
+	MDP_BGRA_8888_TILE,	/* BGRA 8888 in tile format */
+	MDP_RGBX_8888_TILE,	/* RGBX 8888 in tile format */
+	MDP_XRGB_8888_TILE,	/* XRGB 8888 in tile format */
+	MDP_XBGR_8888_TILE,	/* XBGR 8888 in tile format */
+	MDP_BGRX_8888_TILE,	/* BGRX 8888 in tile format */
+	MDP_YCBYCR_H2V1,  /* YCbYCr interleave */
 	MDP_IMGTYPE_LIMIT,
 	MDP_RGB_BORDERFILL,	/* border fill pipe */
 	MDP_FB_FORMAT = MDP_IMGTYPE2_START,    /* framebuffer format */
@@ -177,6 +187,7 @@ enum {
 #define MDP_BACKEND_COMPOSITION		0x00040000
 #define MDP_BORDERFILL_SUPPORTED	0x00010000
 #define MDP_SECURE_OVERLAY_SESSION      0x00008000
+#define MDP_SECURE_DISPLAY_OVERLAY_SESSION	0x00002000
 #define MDP_OV_PIPE_FORCE_DMA		0x00004000
 #define MDP_MEMORY_ID_TYPE_FB		0x00001000
 #define MDP_BWC_EN			0x00000400
@@ -634,6 +645,25 @@ struct mdp_calib_config_data {
 	uint32_t data;
 };
 
+struct mdp_calib_config_buffer {
+	uint32_t ops;
+	uint32_t size;
+	uint32_t *buffer;
+};
+
+struct mdp_calib_dcm_state {
+	uint32_t ops;
+	uint32_t dcm_state;
+};
+
+enum {
+	DCM_UNINIT,
+	DCM_UNBLANK,
+	DCM_ENTER,
+	DCM_EXIT,
+	DCM_BLANK,
+};
+
 #define MDSS_MAX_BL_BRIGHTNESS 255
 #define AD_BL_LIN_LEN (MDSS_MAX_BL_BRIGHTNESS + 1)
 
@@ -725,6 +755,8 @@ enum {
 	mdp_op_ad_cfg,
 	mdp_op_ad_input,
 	mdp_op_calib_mode,
+	mdp_op_calib_buffer,
+	mdp_op_calib_dcm_state,
 	mdp_op_max,
 };
 
@@ -734,6 +766,8 @@ enum {
 	WB_FORMAT_RGB_888,
 	WB_FORMAT_xRGB_8888,
 	WB_FORMAT_ARGB_8888,
+	WB_FORMAT_BGRA_8888,
+	WB_FORMAT_BGRX_8888,
 	WB_FORMAT_ARGB_8888_INPUT_ALPHA /* Need to support */
 };
 
@@ -752,6 +786,8 @@ struct msmfb_mdp_pp {
 		struct mdss_ad_init_cfg ad_init_cfg;
 		struct mdss_calib_cfg mdss_calib_cfg;
 		struct mdss_ad_input ad_input;
+		struct mdp_calib_config_buffer calib_buffer;
+		struct mdp_calib_dcm_state calib_dcm;
 	} data;
 };
 
@@ -803,6 +839,7 @@ struct msmfb_metadata {
 struct mdp_buf_sync {
 	uint32_t flags;
 	uint32_t acq_fen_fd_cnt;
+	uint32_t session_id;
 	int *acq_fen_fd;
 	int *rel_fen_fd;
 };
@@ -827,6 +864,7 @@ struct mdp_display_commit {
 	uint32_t wait_for_finish;
 	struct fb_var_screeninfo var;
 	struct mdp_buf_fence buf_fence;
+	struct mdp_rect roi;
 };
 
 struct mdp_page_protection {
