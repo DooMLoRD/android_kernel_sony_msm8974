@@ -19,6 +19,14 @@ echo "generating device tree..."
 
 ### copy zImage
 cp arch/arm/boot/zImage ../final_files/.
+cp arch/arm/mach-msm/dma_test.ko ../final_files/.
+cp crypto/ansi_cprng.ko ../final_files/.
+cp drivers/gud/mcdrvmodule.ko ../final_files/.
+cp drivers/gud/mckernelapi.ko ../final_files/.
+cp drivers/media/radio/radio-iris-transport.ko ../final_files/.
+cp drivers/misc/eeprom/eeprom_93cx6.ko ../final_files/.
+cp drivers/misc/tspp.ko ../final_files/.
+cp drivers/scsi/scsi_wait_scan.ko ../final_files/.
 cp drivers/char/adsprpc.ko ../final_files/.
 cp arch/arm/mach-msm/qdsp6v2/adsp-loader.ko ../final_files/.
 cp net/wireless/cfg80211.ko ../final_files/.
@@ -45,6 +53,14 @@ cp ./arch/arm/mach-msm/msm-buspm-dev.ko ../final_files/.
 ~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/adsp-loader.ko
 ~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/mcdrvmodule.ko
 ~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/msm-buspm-dev.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/dma_test.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/ansi_cprng.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/mcdrvmodule.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/mckernelapi.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/radio-iris-transport.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/eeprom_93cx6.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/tspp.ko
+~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi-strip --strip-unneeded ../final_files/scsi_wait_scan.ko
 echo "DONE"
 
 fi
