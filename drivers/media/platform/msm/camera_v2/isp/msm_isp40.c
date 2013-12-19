@@ -290,6 +290,14 @@ static int msm_vfe40_init_hardware(struct vfe_device *vfe_dev)
 		goto vbif_remap_failed;
 	}
 
+	vfe_dev->tcsr_base = ioremap(vfe_dev->tcsr_mem->start,
+		resource_size(vfe_dev->tcsr_mem));
+	if (!vfe_dev->tcsr_base) {
+		rc = -ENOMEM;
+		pr_err("%s: tcsr ioremap failed\n", __func__);
+		goto tcsr_remap_failed;
+	}
+
 	rc = request_irq(vfe_dev->vfe_irq->start, msm_isp_process_irq,
 		IRQF_TRIGGER_RISING, "vfe", vfe_dev);
 	if (rc < 0) {
@@ -298,6 +306,8 @@ static int msm_vfe40_init_hardware(struct vfe_device *vfe_dev)
 	}
 	return rc;
 irq_req_failed:
+	iounmap(vfe_dev->tcsr_base);
+tcsr_remap_failed:
 	iounmap(vfe_dev->vfe_vbif_base);
 vbif_remap_failed:
 	iounmap(vfe_dev->vfe_base);
@@ -316,6 +326,7 @@ static void msm_vfe40_release_hardware(struct vfe_device *vfe_dev)
 {
 	free_irq(vfe_dev->vfe_irq->start, vfe_dev);
 	tasklet_kill(&vfe_dev->vfe_tasklet);
+	iounmap(vfe_dev->tcsr_base);
 	iounmap(vfe_dev->vfe_vbif_base);
 	iounmap(vfe_dev->vfe_base);
 	msm_cam_clk_enable(&vfe_dev->pdev->dev, msm_vfe40_clk_info,
@@ -503,15 +514,17 @@ static void msm_vfe40_read_irq_status(struct vfe_device *vfe_dev,
 {
 	*irq_status0 = msm_camera_io_r(vfe_dev->vfe_base + 0x38);
 	*irq_status1 = msm_camera_io_r(vfe_dev->vfe_base + 0x3C);
-	/*Ignore composite 3 irq which is used for dual VFE only*/
+	/*
+	 * Ignore composite 2/3 irq which is used for dual VFE only
+	 */
 	if (*irq_status0 & 0x6000000)
-		*irq_status0 &= ~(0x10000000);
+		*irq_status0 &= ~(0x18000000);
 	msm_camera_io_w(*irq_status0, vfe_dev->vfe_base + 0x30);
 	msm_camera_io_w(*irq_status1, vfe_dev->vfe_base + 0x34);
 	msm_camera_io_w_mb(1, vfe_dev->vfe_base + 0x24);
-	if (*irq_status0 & 0x10000000) {
+	if (*irq_status0 & 0x18000000) {
 		pr_err_ratelimited("%s: Protection triggered\n", __func__);
-		*irq_status0 &= ~(0x10000000);
+		*irq_status0 &= ~(0x18000000);
 	}
 
 	if (*irq_status1 & (1 << 0))
@@ -597,15 +610,29 @@ static void msm_vfe40_axi_cfg_comp_mask(struct vfe_device *vfe_dev,
 	comp_mask &= ~(0x7F << (comp_mask_index * 8));
 	comp_mask |= (axi_data->composite_info[comp_mask_index].
 		stream_composite_mask << (comp_mask_index * 8));
-	if (stream_info->plane_cfg[0].plane_addr_offset)
-		comp_mask |= (axi_data->composite_info[comp_mask_index].
-		stream_composite_mask << 24);
-	msm_camera_io_w(comp_mask, vfe_dev->vfe_base + 0x40);
 
 	irq_mask = msm_camera_io_r(vfe_dev->vfe_base + 0x28);
 	irq_mask |= 1 << (comp_mask_index + 25);
-	if (stream_info->plane_cfg[0].plane_addr_offset && (comp_mask >> 24))
+
+	/*
+	 * For dual VFE, composite 2/3 interrupt is used to trigger
+	 * microcontroller to update certain VFE registers
+	 */
+	if (stream_info->plane_cfg[0].plane_addr_offset &&
+		stream_info->stream_src == PIX_VIEWFINDER) {
+		comp_mask |= (axi_data->composite_info[comp_mask_index].
+		stream_composite_mask << 16);
+		irq_mask |= BIT(27);
+	}
+
+	if (stream_info->plane_cfg[0].plane_addr_offset &&
+		stream_info->stream_src == PIX_ENCODER) {
+		comp_mask |= (axi_data->composite_info[comp_mask_index].
+		stream_composite_mask << 24);
 		irq_mask |= BIT(28);
+	}
+
+	msm_camera_io_w(comp_mask, vfe_dev->vfe_base + 0x40);
 	msm_camera_io_w(irq_mask, vfe_dev->vfe_base + 0x28);
 }
 
@@ -618,15 +645,25 @@ static void msm_vfe40_axi_clear_comp_mask(struct vfe_device *vfe_dev,
 
 	comp_mask = msm_camera_io_r(vfe_dev->vfe_base + 0x40);
 	comp_mask &= ~(0x7F << (comp_mask_index * 8));
-	if (stream_info->plane_cfg[0].plane_addr_offset)
-		comp_mask &= ~(axi_data->composite_info[comp_mask_index].
-		stream_composite_mask << 24);
-	msm_camera_io_w(comp_mask, vfe_dev->vfe_base + 0x40);
 
 	irq_mask = msm_camera_io_r(vfe_dev->vfe_base + 0x28);
 	irq_mask &= ~(1 << (comp_mask_index + 25));
-	if (stream_info->plane_cfg[0].plane_addr_offset && (comp_mask >> 24))
+
+	if (stream_info->plane_cfg[0].plane_addr_offset &&
+		stream_info->stream_src == PIX_VIEWFINDER) {
+		comp_mask &= ~(axi_data->composite_info[comp_mask_index].
+		stream_composite_mask << 16);
+		irq_mask &= ~BIT(27);
+	}
+
+	if (stream_info->plane_cfg[0].plane_addr_offset &&
+		stream_info->stream_src == PIX_ENCODER) {
+		comp_mask &= ~(axi_data->composite_info[comp_mask_index].
+		stream_composite_mask << 24);
 		irq_mask &= ~BIT(28);
+	}
+
+	msm_camera_io_w(comp_mask, vfe_dev->vfe_base + 0x40);
 	msm_camera_io_w(irq_mask, vfe_dev->vfe_base + 0x28);
 }
 
@@ -688,11 +725,12 @@ static void msm_vfe40_clear_framedrop(struct vfe_device *vfe_dev,
 }
 
 static void msm_vfe40_cfg_io_format(struct vfe_device *vfe_dev,
-	struct msm_vfe_axi_stream *stream_info)
+	enum msm_vfe_axi_stream_src stream_src, uint32_t io_format)
 {
-	int bpp, bpp_reg = 0;
-	uint32_t io_format_reg;
-	bpp = msm_isp_get_bit_per_pixel(stream_info->output_format);
+	int bpp, bpp_reg = 0, pack_reg = 0;
+	enum msm_isp_pack_fmt pack_fmt = 0;
+	uint32_t io_format_reg; /*io format register bit*/
+	bpp = msm_isp_get_bit_per_pixel(io_format);
 
 	switch (bpp) {
 	case 8:
@@ -705,18 +743,47 @@ static void msm_vfe40_cfg_io_format(struct vfe_device *vfe_dev,
 		bpp_reg = 1 << 1;
 		break;
 	}
+
+	if (stream_src == IDEAL_RAW) {
+		/*use io_format(v4l2_pix_fmt) to get pack format*/
+		pack_fmt = msm_isp_get_pack_format(io_format);
+		switch (pack_fmt) {
+		case QCOM:
+			pack_reg = 0x0;
+			break;
+		case MIPI:
+			pack_reg = 0x1;
+			break;
+		case DPCM6:
+			pack_reg = 0x2;
+			break;
+		case DPCM8:
+			pack_reg = 0x3;
+			break;
+		case PLAIN8:
+			pack_reg = 0x4;
+			break;
+		case PLAIN16:
+			pack_reg = 0x5;
+			break;
+		default:
+			pr_err("%s: invalid pack fmt!\n", __func__);
+			return;
+		}
+	}
+
 	io_format_reg = msm_camera_io_r(vfe_dev->vfe_base + 0x54);
-	switch (stream_info->stream_src) {
+	switch (stream_src) {
+	case PIX_ENCODER:
+	case PIX_VIEWFINDER:
 	case CAMIF_RAW:
 		io_format_reg &= 0xFFFFCFFF;
 		io_format_reg |= bpp_reg << 12;
 		break;
 	case IDEAL_RAW:
 		io_format_reg &= 0xFFFFFFC8;
-		io_format_reg |= bpp_reg << 4;
+		io_format_reg |= bpp_reg << 4 | pack_reg;
 		break;
-	case PIX_ENCODER:
-	case PIX_VIEWFINDER:
 	case RDI_INTF_0:
 	case RDI_INTF_1:
 	case RDI_INTF_2:
@@ -1262,6 +1329,14 @@ static int msm_vfe40_get_platform_data(struct vfe_device *vfe_dev)
 		goto vfe_no_resource;
 	}
 
+	vfe_dev->tcsr_mem = platform_get_resource_byname(vfe_dev->pdev,
+		IORESOURCE_MEM, "tcsr");
+	if (!vfe_dev->tcsr_mem) {
+		pr_err("%s: no mem resource?\n", __func__);
+		rc = -ENODEV;
+		goto vfe_no_resource;
+	}
+
 	vfe_dev->vfe_irq = platform_get_resource_byname(vfe_dev->pdev,
 		IORESOURCE_IRQ, "vfe");
 	if (!vfe_dev->vfe_irq) {
@@ -1300,7 +1375,7 @@ static void msm_vfe40_get_error_mask(
 
 static struct msm_vfe_axi_hardware_info msm_vfe40_axi_hw_info = {
 	.num_wm = 5,
-	.num_comp_mask = 3,
+	.num_comp_mask = 2,
 	.num_rdi = 3,
 	.num_rdi_master = 3,
 	.min_wm_ub = 64,

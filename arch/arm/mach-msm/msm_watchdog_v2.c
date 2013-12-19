@@ -25,7 +25,6 @@
 #include <linux/of.h>
 #include <linux/cpu.h>
 #include <linux/platform_device.h>
-#include <linux/suspend.h>
 #include <mach/scm.h>
 #include <mach/msm_memory_dump.h>
 
@@ -364,6 +363,11 @@ static irqreturn_t wdog_bark_handler(int irq, void *dev_id)
 	mb();
 	/* Delay to make sure bite occurs */
 	mdelay(1);
+	pr_err("Wdog - STS: 0x%x, CTL: 0x%x, BARK TIME: 0x%x, BITE TIME: 0x%x",
+		__raw_readl(wdog_dd->base + WDT0_STS),
+		__raw_readl(wdog_dd->base + WDT0_EN),
+		__raw_readl(wdog_dd->base + WDT0_BARK_TIME),
+		__raw_readl(wdog_dd->base + WDT0_BITE_TIME));
 	panic("Failed to cause a watchdog bite! - Falling back to kernel panic!");
 	return IRQ_HANDLED;
 }
@@ -541,27 +545,6 @@ static int __devinit msm_wdog_dt_to_pdata(struct platform_device *pdev,
 	return 0;
 }
 
-static int wdog_pm_notifier(struct notifier_block *nb, unsigned long event,
-		void *dummy)
-{
-	struct msm_watchdog_data *wdog_dd =
-		(struct msm_watchdog_data *)dev_get_drvdata(dev);
-
-		switch (event) {
-		case PM_SUSPEND_PREPARE:
-			pet_watchdog(wdog_dd);
-			break;
-		default:
-			break;
-		}
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block wdog_pm_nb = {
-	.notifier_call = wdog_pm_notifier,
-	.priority = 0,
-};
-
 static int __devinit msm_watchdog_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -587,7 +570,6 @@ static int __devinit msm_watchdog_probe(struct platform_device *pdev)
 	INIT_WORK(&wdog_dd->init_dogwork_struct, init_watchdog_work);
 	INIT_DELAYED_WORK(&wdog_dd->dogwork_struct, pet_watchdog_work);
 	queue_work_on(0, wdog_wq, &wdog_dd->init_dogwork_struct);
-	register_pm_notifier(&wdog_pm_nb);
 	return 0;
 err:
 	destroy_workqueue(wdog_wq);

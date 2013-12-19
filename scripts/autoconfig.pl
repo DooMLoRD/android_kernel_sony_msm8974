@@ -17,7 +17,7 @@ use warnings;
 use Cwd 'abs_path';
 use File::Copy;
 
-my @supported_platforms = ("rhine");
+my @supported_platforms = ("rhine","shinano");
 my $kernel_dir;
 my $config_dir;
 my @products = ();

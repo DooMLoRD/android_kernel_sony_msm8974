@@ -178,12 +178,15 @@ struct interrupt_data {
 #define SS_UNRECOVERED_READ_ERROR		0x031100
 #define SS_WRITE_ERROR				0x030c02
 #define SS_WRITE_PROTECTED			0x072700
+#define SS_BECOMING_READY			0x020401
 
 #define SK(x)		((u8) ((x) >> 16))	/* Sense Key byte, etc. */
 #define ASC(x)		((u8) ((x) >> 8))
 #define ASCQ(x)		((u8) (x))
 
 #define RANDOM_WRITE_COUNT_TO_BE_FLUSHED (15)
+#define BECOMING_READY_COUNT			1
+#define NOT_READY_TO_READY_TRANSITION_COUNT	10
 /* VPD(Vital product data) Page Name */
 #define VPD_SUPPORTED_VPD_PAGES		0x00
 #define VPD_UNIT_SERIAL_NUMBER		0x80
@@ -198,6 +201,8 @@ struct fsg_lun {
 	loff_t		num_sectors;
 
 	u8		random_write_count;
+	atomic_t	wait_for_mount;
+	u8		wait_for_mount_count;
 	loff_t		last_offset;
 
 	unsigned int	initially_ro:1;
@@ -992,6 +997,7 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 				curlun->lun_filename[count] = '\0';
 				curlun->unit_attention_data =
 					SS_NOT_READY_TO_READY_TRANSITION;
+				atomic_set(&curlun->wait_for_mount, 0);
 			}
 		}
 	}

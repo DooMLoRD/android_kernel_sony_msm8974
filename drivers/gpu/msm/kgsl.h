@@ -205,24 +205,9 @@ struct kgsl_mem_entry {
 #define MMU_CONFIG 1
 #endif
 
-void kgsl_hang_intr_work(struct work_struct *work);
 void kgsl_hang_check(struct work_struct *work);
 void kgsl_mem_entry_destroy(struct kref *kref);
 int kgsl_postmortem_dump(struct kgsl_device *device, int manual);
-
-static inline void kgsl_atomic_set(atomic_t *addr, unsigned int val)
-{
-	atomic_set(addr, val);
-	/* make sure above write is posted */
-	wmb();
-}
-
-static inline int kgsl_atomic_read(atomic_t *addr)
-{
-	/* make sure below read is read from memory */
-	rmb();
-	return atomic_read(addr);
-}
 
 struct kgsl_mem_entry *kgsl_get_mem_entry(struct kgsl_device *device,
 		phys_addr_t ptbase, unsigned int gpuaddr, unsigned int size);
@@ -233,15 +218,15 @@ struct kgsl_mem_entry *kgsl_sharedmem_find_region(
 
 void kgsl_get_memory_usage(char *str, size_t len, unsigned int memflags);
 
-int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
-	void (*cb)(struct kgsl_device *, void *, u32, u32), void *priv,
-	void *owner);
+void kgsl_signal_event(struct kgsl_device *device,
+		struct kgsl_context *context, unsigned int timestamp,
+		unsigned int type);
+
+void kgsl_signal_events(struct kgsl_device *device,
+		struct kgsl_context *context, unsigned int type);
 
 void kgsl_cancel_events(struct kgsl_device *device,
 	void *owner);
-
-void kgsl_cancel_events_ctxt(struct kgsl_device *device,
-	struct kgsl_context *context);
 
 extern const struct dev_pm_ops kgsl_pm_ops;
 

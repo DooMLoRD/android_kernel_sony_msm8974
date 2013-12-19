@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-#include <linux/mfd/pm8xxx/batterydata-lib.h>
+#include <linux/batterydata-lib.h>
 
 static struct single_row_lut fcc_temp = {
 	.x		= {-20, 0, 25, 40, 65},
@@ -106,4 +106,5 @@ struct bms_battery_data palladium_1500_data = {
 	.rbatt_sf_lut		= &rbatt_sf,
 	.default_rbatt_mohm	= 236,
 	.rbatt_capacitive_mohm	= 50,
+	.flat_ocv_threshold_uv	= 3800000,
 };

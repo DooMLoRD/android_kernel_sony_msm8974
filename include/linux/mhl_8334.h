@@ -145,7 +145,8 @@ struct mhl_tx_ctrl {
 	struct work_struct timer_work;
 	bool notify_usb_online_plugged;
 	bool discovering;
-	void (*notify_usb_online)(int online);
+	void (*notify_usb_online)(void *ctx, int online);
+	void *notify_ctx;
 	struct usb_ext_notification *mhl_info;
 	bool disc_enabled;
 	struct power_supply mhl_psy;

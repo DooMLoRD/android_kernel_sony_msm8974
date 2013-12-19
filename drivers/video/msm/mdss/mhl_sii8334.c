@@ -25,7 +25,6 @@
 #include <linux/input.h>
 #include <linux/usb/msm_hsusb.h>
 #include <linux/mhl_8334.h>
-#include <mach/board-usb.h>
 
 #include "mdss_fb.h"
 #include "mdss_hdmi_tx.h"
@@ -392,7 +391,7 @@ static int mhl_sii_wait_for_rgnd(struct mhl_tx_ctrl *mhl_ctrl)
 
 /*  USB_HANDSHAKING FUNCTIONS */
 static int mhl_sii_device_discovery(void *data, int id,
-			     void (*usb_notify_cb)(int online))
+			     void (*usb_notify_cb)(void *, int), void *ctx)
 {
 	int rc;
 	struct mhl_tx_ctrl *mhl_ctrl = data;
@@ -411,8 +410,10 @@ static int mhl_sii_device_discovery(void *data, int id,
 		return -EINVAL;
 	}
 
-	if (!mhl_ctrl->notify_usb_online)
+	if (!mhl_ctrl->notify_usb_online) {
 		mhl_ctrl->notify_usb_online = usb_notify_cb;
+		mhl_ctrl->notify_ctx = ctx;
+	}
 
 	if (!mhl_ctrl->disc_enabled) {
 		mhl_ctrl->cur_state = POWER_STATE_D0_MHL;
@@ -938,10 +939,10 @@ static int  mhl_msm_read_rgnd_int(struct mhl_tx_ctrl *mhl_ctrl)
 			power_supply_changed(&mhl_ctrl->mhl_psy);
 			if (mhl_ctrl->notify_usb_online) {
 				mhl_ctrl->notify_usb_online_plugged = true;
-				mhl_ctrl->notify_usb_online(1);
+				mhl_ctrl->notify_usb_online(
+					mhl_ctrl->notify_ctx, 1);
 			}
-		} else
-			power_supply_set_present(&mhl_ctrl->mhl_psy, true);
+		}
 	} else {
 		pr_debug("%s: non-mhl sink\n", __func__);
 		mhl_ctrl->mhl_mode = 0;
@@ -1016,7 +1017,7 @@ static void mhl_discovery_timeout_work(struct work_struct *work)
 		power_supply_changed(&mhl_ctrl->mhl_psy);
 		if (mhl_ctrl->notify_usb_online) {
 			mhl_ctrl->notify_usb_online_plugged = false;
-			mhl_ctrl->notify_usb_online(0);
+			mhl_ctrl->notify_usb_online(mhl_ctrl->notify_ctx, 0);
 		}
 		del_timer(&mhl_ctrl->discovery_timer);
 	}
@@ -1078,7 +1079,6 @@ static int dev_detect_isr(struct mhl_tx_ctrl *mhl_ctrl)
 		/* Short RGND */
 		MHL_SII_REG_NAME_MOD(REG_DISC_STAT2, BIT0 | BIT1, 0x00);
 		mhl_msm_disconnection(mhl_ctrl);
-		power_supply_set_present(&mhl_ctrl->mhl_psy, false);
 		return -EACCES;
 	}
 
@@ -1092,7 +1092,6 @@ static int dev_detect_isr(struct mhl_tx_ctrl *mhl_ctrl)
 		MHL_SII_REG_NAME_WR(REG_INTR4, reg);
 		mhl_ctrl->discovering = true;
 		mhl_msm_disconnection(mhl_ctrl);
-		power_supply_set_present(&mhl_ctrl->mhl_psy, false);
 		return -EACCES;
 	}
 
@@ -1196,10 +1195,14 @@ int mhl_send_msc_command(struct mhl_tx_ctrl *mhl_ctrl,
 	struct i2c_client *client = mhl_ctrl->i2c_handle;
 
 	if (mhl_ctrl->cur_state != POWER_STATE_D0_MHL) {
-		pr_debug("%s: power_state:%02x CBUS(0x0A):%02x\n",
-			 __func__,
-			 mhl_ctrl->cur_state,
-			 MHL_SII_REG_NAME_RD(REG_CBUS_BUS_STATUS));
+		if (mhl_ctrl->cur_state == POWER_STATE_D3)
+			pr_debug("%s: power_state:%02x\n",
+				 __func__, mhl_ctrl->cur_state);
+		else
+			pr_debug("%s: power_state:%02x CBUS(0x0A):%02x\n",
+				 __func__,
+				 mhl_ctrl->cur_state,
+				 MHL_SII_REG_NAME_RD(REG_CBUS_BUS_STATUS));
 		return -EFAULT;
 	}
 
@@ -1787,7 +1790,6 @@ static int mhl_i2c_probe(struct i2c_client *client,
 	struct mhl_tx_ctrl *mhl_ctrl;
 	struct usb_ext_notification *mhl_info = NULL;
 	struct msm_hdmi_mhl_ops *hdmi_mhl_ops = NULL;
-	bool usb3_available = true;
 
 	mhl_ctrl = devm_kzalloc(&client->dev, sizeof(*mhl_ctrl), GFP_KERNEL);
 	if (!mhl_ctrl) {
@@ -1814,10 +1816,6 @@ static int mhl_i2c_probe(struct i2c_client *client,
 		mhl_ctrl->i2c_handle = client;
 		mhl_ctrl->pdata = pdata;
 		i2c_set_clientdata(client, mhl_ctrl);
-		if (!msm_is_usb3_available()) {
-			pr_info("%s: do not use usb3 stack.\n", __func__);
-			usb3_available = false;
-		}
 	}
 
 	/*
@@ -1844,12 +1842,9 @@ static int mhl_i2c_probe(struct i2c_client *client,
 	 * Other initializations
 	 * such tx specific
 	 */
-	if (usb3_available) {
-		if (mhl_ctrl->pdata->device_discovery)
-			mhl_ctrl->disc_enabled = true;
-		else
-			mhl_ctrl->disc_enabled = false;
-	} else
+	if (mhl_ctrl->pdata->device_discovery)
+		mhl_ctrl->disc_enabled = true;
+	else
 		mhl_ctrl->disc_enabled = false;
 	INIT_WORK(&mhl_ctrl->mhl_msc_send_work, mhl_msc_send_work);
 	mhl_ctrl->cur_state = POWER_STATE_D0_MHL;

@@ -320,13 +320,6 @@ int q6lsm_open(struct lsm_client *client)
 	int rc;
 	struct lsm_stream_cmd_open_tx open;
 
-	if (!afe_has_config(AFE_CDC_REGISTERS_CONFIG) ||
-	    !afe_has_config(AFE_SLIMBUS_SLAVE_CONFIG)) {
-		pr_err("%s: AFE isn't configured yet\n", __func__);
-		rc = -EAGAIN;
-		goto exit;
-	}
-
 	memset(&open, 0, sizeof(open));
 	q6lsm_add_hdr(client, &open.hdr, sizeof(open), true);
 
@@ -339,8 +332,6 @@ int q6lsm_open(struct lsm_client *client)
 		pr_err("%s: Open failed opcode 0x%x, rc %d\n",
 		       __func__, open.hdr.opcode, rc);
 
-exit:
-	pr_debug("%s: leave %d\n", __func__, rc);
 	return rc;
 }
 
@@ -788,7 +779,7 @@ int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len)
 	int rc = -EINVAL;
 
 	if (!client)
-		goto fail;
+		return rc;
 
 	mutex_lock(&client->cmd_lock);
 	if (!client->sound_model.data) {
@@ -797,7 +788,6 @@ int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len)
 		if (IS_ERR_OR_NULL(client->sound_model.client)) {
 			pr_err("%s: ION create client for AUDIO failed\n",
 			       __func__);
-			mutex_unlock(&client->cmd_lock);
 			goto fail;
 		}
 		client->sound_model.handle =
@@ -806,7 +796,6 @@ int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len)
 		if (IS_ERR_OR_NULL(client->sound_model.handle)) {
 			pr_err("%s: ION memory allocation for AUDIO failed\n",
 			       __func__);
-			mutex_unlock(&client->cmd_lock);
 			goto fail;
 		}
 
@@ -817,7 +806,6 @@ int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len)
 		if (rc) {
 			pr_err("%s: ION get physical mem failed, rc%d\n",
 			       __func__, rc);
-			mutex_unlock(&client->cmd_lock);
 			goto fail;
 		}
 
@@ -826,7 +814,6 @@ int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len)
 				   client->sound_model.handle);
 		if (IS_ERR_OR_NULL(client->sound_model.data)) {
 			pr_err("%s: ION memory mapping failed\n", __func__);
-			mutex_unlock(&client->cmd_lock);
 			goto fail;
 		}
 		memset(client->sound_model.data, 0, len);
@@ -842,11 +829,13 @@ int q6lsm_snd_model_buf_alloc(struct lsm_client *client, uint32_t len)
 				      &client->sound_model.mem_map_handle);
 	if (rc < 0) {
 		pr_err("%s:CMD Memory_map_regions failed\n", __func__);
-		goto fail;
+		goto exit;
 	}
 
 	return 0;
 fail:
+	mutex_unlock(&client->cmd_lock);
+exit:
 	q6lsm_snd_model_buf_free(client);
 	return rc;
 }

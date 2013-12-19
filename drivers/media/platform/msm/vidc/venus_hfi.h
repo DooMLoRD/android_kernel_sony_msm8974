@@ -116,6 +116,14 @@ enum vidc_hw_reg {
 	VIDC_HWREG_HVI_SOFTINTEN =  0xA,
 };
 
+enum bus_index {
+	BUS_IDX_ENC_OCMEM,
+	BUS_IDX_DEC_OCMEM,
+	BUS_IDX_ENC_DDR,
+	BUS_IDX_DEC_DDR,
+	BUS_IDX_MAX
+};
+
 struct vidc_mem_addr {
 	u8 *align_device_addr;
 	u8 *align_virtual_addr;
@@ -174,12 +182,15 @@ struct venus_hfi_device {
 	struct list_head sess_head;
 	u32 intr_status;
 	u32 device_id;
-	u32 load;
+	u32 clk_load;
+	u32 bus_load[MSM_VIDC_MAX_DEVICES];
 	u32 clocks_enabled;
+	u32 power_enabled;
 	enum vidc_clocks clk_gating_level;
 	struct mutex read_lock;
 	struct mutex write_lock;
-	struct mutex clock_lock;
+	struct mutex clk_pwr_lock;
+	struct mutex session_lock;
 	msm_vidc_callback callback;
 	struct vidc_mem_addr iface_q_table;
 	struct vidc_mem_addr qdss;
@@ -189,6 +200,7 @@ struct venus_hfi_device {
 	struct smem_client *hal_client;
 	struct hal_data *hal_data;
 	struct workqueue_struct *vidc_workq;
+	struct workqueue_struct *venus_pm_workq;
 	int spur_count;
 	int reg_count;
 	u32 base_addr;
@@ -197,6 +209,7 @@ struct venus_hfi_device {
 	u32 irq;
 	struct venus_resources resources;
 	struct msm_vidc_platform_resources *res;
+	struct regulator *gdsc;
 };
 
 void venus_hfi_delete_device(void *device);

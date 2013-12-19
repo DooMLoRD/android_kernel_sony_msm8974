@@ -2233,7 +2233,22 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 	/* If the medium isn't mounted and the command needs to access
 	 * it, return an error. */
 	if (curlun && !fsg_lun_is_open(curlun) && needs_medium) {
-		curlun->sense_data = SS_MEDIUM_NOT_PRESENT;
+		if (atomic_read(&curlun->wait_for_mount)) {
+			if (curlun->wait_for_mount_count
+				< BECOMING_READY_COUNT) {
+				curlun->sense_data = SS_BECOMING_READY;
+			} else if (curlun->wait_for_mount_count
+				< NOT_READY_TO_READY_TRANSITION_COUNT) {
+				curlun->sense_data =
+					SS_NOT_READY_TO_READY_TRANSITION;
+			} else {
+				atomic_set(&curlun->wait_for_mount, 0);
+				curlun->sense_data = SS_MEDIUM_NOT_PRESENT;
+			}
+			curlun->wait_for_mount_count++;
+		} else {
+			curlun->sense_data = SS_MEDIUM_NOT_PRESENT;
+		}
 		return -EINVAL;
 	}
 
@@ -2741,8 +2756,11 @@ reset:
 	}
 
 	common->running = 1;
-	for (i = 0; i < common->nluns; ++i)
+	for (i = 0; i < common->nluns; ++i) {
 		common->luns[i].unit_attention_data = SS_RESET_OCCURRED;
+		atomic_set(&common->luns[i].wait_for_mount, 1);
+		common->luns[i].wait_for_mount_count = 0;
+	}
 	return rc;
 }
 

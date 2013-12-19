@@ -13,13 +13,10 @@
 /dts-v1/;
 /include/ "msm8226-v2.dtsi"
 /include/ "msm8226-mtp.dtsi"
+/include/ "msm8226-camera-sensor-mtp.dtsi"
 
 / {
 	model = "Qualcomm MSM 8226v2 MTP";
 	compatible = "qcom,msm8226-mtp", "qcom,msm8226", "qcom,mtp";
-	qcom,msm-id = <145 8 0x20000>,
-		      <158 8 0x20000>,
-		      <159 8 0x20000>,
-		      <198 8 0x20000>,
-		      <205 8 0x20000>;
+	qcom,board-id = <8 0>;
 };

@@ -13,6 +13,7 @@
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
+#include <linux/err.h>
 
 #include <linux/clk.h>
 #include <mach/clk-provider.h>
@@ -67,10 +68,12 @@ static long mux_round_rate(struct clk *c, unsigned long rate)
 {
 	struct mux_clk *mux = to_mux_clk(c);
 	int i;
-	long prate, max_prate = 0, rrate = LONG_MAX;
+	unsigned long prate, max_prate = 0, rrate = ULONG_MAX;
 
 	for (i = 0; i < mux->num_parents; i++) {
 		prate = clk_round_rate(mux->parents[i].src, rate);
+		if (IS_ERR_VALUE(prate))
+			continue;
 		if (prate < rate) {
 			max_prate = max(prate, max_prate);
 			continue;
@@ -78,7 +81,7 @@ static long mux_round_rate(struct clk *c, unsigned long rate)
 
 		rrate = min(rrate, prate);
 	}
-	if (rrate == LONG_MAX)
+	if (rrate == ULONG_MAX)
 		rrate = max_prate;
 
 	return rrate ? rrate : -EINVAL;
@@ -90,6 +93,7 @@ static int mux_set_rate(struct clk *c, unsigned long rate)
 	struct clk *new_parent = NULL;
 	int rc = 0, i;
 	unsigned long new_par_curr_rate;
+	unsigned long flags;
 
 	for (i = 0; i < mux->num_parents; i++) {
 		if (clk_round_rate(mux->parents[i].src, rate) == rate) {
@@ -105,8 +109,16 @@ static int mux_set_rate(struct clk *c, unsigned long rate)
 	 * same and the parent might temporarily turn off while switching
 	 * rates.
 	 */
-	if (mux->safe_sel >= 0)
+	if (mux->safe_sel >= 0) {
+		/*
+		 * Some mux implementations might switch to/from a low power
+		 * parent as part of their disable/enable ops. Grab the
+		 * enable lock to avoid racing with these implementations.
+		 */
+		spin_lock_irqsave(&c->lock, flags);
 		rc = mux->ops->set_mux_sel(mux, mux->safe_sel);
+		spin_unlock_irqrestore(&c->lock, flags);
+	}
 	if (rc)
 		return rc;
 
@@ -200,7 +212,7 @@ static long __div_round_rate(struct clk *c, unsigned long rate, int *best_div)
 {
 	struct div_clk *d = to_div_clk(c);
 	unsigned int div, min_div, max_div;
-	long p_rrate, rrate = LONG_MAX;
+	unsigned long p_rrate, rrate = ULONG_MAX;
 
 	rate = max(rate, 1UL);
 
@@ -208,12 +220,12 @@ static long __div_round_rate(struct clk *c, unsigned long rate, int *best_div)
 		min_div = max_div = d->div;
 	else {
 		min_div = max(d->min_div, 1U);
-		max_div = min(d->max_div, (unsigned int) (LONG_MAX / rate));
+		max_div = min(d->max_div, (unsigned int) (ULONG_MAX / rate));
 	}
 
 	for (div = min_div; div <= max_div; div++) {
 		p_rrate = clk_round_rate(c->parent, rate * div);
-		if (p_rrate < 0)
+		if (IS_ERR_VALUE(p_rrate))
 			break;
 
 		p_rrate /= div;
@@ -225,7 +237,7 @@ static long __div_round_rate(struct clk *c, unsigned long rate, int *best_div)
 		 * for a higher divider. So, stop trying higher dividers.
 		 */
 		if (p_rrate < rate) {
-			if (rrate == LONG_MAX) {
+			if (rrate == ULONG_MAX) {
 				rrate = p_rrate;
 				if (best_div)
 					*best_div = div;
@@ -242,7 +254,7 @@ static long __div_round_rate(struct clk *c, unsigned long rate, int *best_div)
 			break;
 	}
 
-	if (rrate == LONG_MAX)
+	if (rrate == ULONG_MAX)
 		return -EINVAL;
 
 	return rrate;
@@ -263,6 +275,12 @@ static int div_set_rate(struct clk *c, unsigned long rate)
 	if (rrate != rate)
 		return -EINVAL;
 
+	/*
+	 * For fixed divider clock we don't want to return an error if the
+	 * requested rate matches the achievable rate. So, don't check for
+	 * !d->ops and return an error. __div_round_rate() ensures div ==
+	 * d->div if !d->ops.
+	 */
 	if (div > d->div)
 		rc = d->ops->set_div(d, div);
 	if (rc)
@@ -296,7 +314,7 @@ set_rate_fail:
 static int div_enable(struct clk *c)
 {
 	struct div_clk *d = to_div_clk(c);
-	if (d->ops->enable)
+	if (d->ops && d->ops->enable)
 		return d->ops->enable(d);
 	return 0;
 }
@@ -304,7 +322,7 @@ static int div_enable(struct clk *c)
 static void div_disable(struct clk *c)
 {
 	struct div_clk *d = to_div_clk(c);
-	if (d->ops->disable)
+	if (d->ops && d->ops->disable)
 		return d->ops->disable(d);
 }
 
@@ -312,7 +330,7 @@ static enum handoff div_handoff(struct clk *c)
 {
 	struct div_clk *d = to_div_clk(c);
 
-	if (d->ops->get_div)
+	if (d->ops && d->ops->get_div)
 		d->div = max(d->ops->get_div(d), 1);
 	d->div = max(d->div, 1U);
 	c->rate = clk_get_rate(c->parent) / d->div;
@@ -386,8 +404,13 @@ static int slave_div_set_rate(struct clk *c, unsigned long rate)
 	if (div == d->div)
 		return 0;
 
-	if (d->ops->set_div)
-		rc = d->ops->set_div(d, div);
+	/*
+	 * For fixed divider clock we don't want to return an error if the
+	 * requested rate matches the achievable rate. So, don't check for
+	 * !d->ops and return an error. __slave_div_round_rate() ensures
+	 * div == d->div if !d->ops.
+	 */
+	rc = d->ops->set_div(d, div);
 	if (rc)
 		return rc;
 

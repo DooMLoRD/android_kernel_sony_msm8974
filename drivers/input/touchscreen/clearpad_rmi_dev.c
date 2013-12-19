@@ -33,7 +33,7 @@
 #define CHAR_DEVICE_NAME "rmi"
 #define DEVICE_CLASS_NAME "rmidev"
 
-#define RMI_CHAR_DEV_TMPBUF_SZ 128
+#define RMI_CHAR_DEV_TMPBUF_SZ (1024 * 8)
 #define RMI_REG_ADDR_PAGE_SELECT 0xFF
 #define REG_ADDR_LIMIT 0xFFFF
 
@@ -53,6 +53,8 @@ struct rmidev_data {
 	int ref_count;
 
 	struct class *device_class;
+
+	unsigned char tmpbuf[RMI_CHAR_DEV_TMPBUF_SZ];
 };
 
 /*store dynamically allocated major number of char device*/
@@ -154,7 +156,6 @@ static ssize_t rmidev_read(struct file *filp, char __user *buf,
 {
 	struct rmidev_data *data = filp->private_data;
 	ssize_t retval  = 0;
-	unsigned char tmpbuf[RMI_CHAR_DEV_TMPBUF_SZ];
 
 	if (*f_pos > REG_ADDR_LIMIT) {
 		retval = -EINVAL;
@@ -178,14 +179,14 @@ static ssize_t rmidev_read(struct file *filp, char __user *buf,
 
 	mutex_lock(&(data->file_mutex));
 
-	retval = rmi_read_block(data, *f_pos, tmpbuf, count);
+	retval = rmi_read_block(data, *f_pos, data->tmpbuf, count);
 
 	if (retval < 0)
 		goto clean_up;
 	else
 		*f_pos += retval;
 
-	if (copy_to_user(buf, tmpbuf, count))
+	if (copy_to_user(buf, data->tmpbuf, count))
 		retval = -EFAULT;
 
 clean_up:
@@ -211,7 +212,6 @@ static ssize_t rmidev_write(struct file *filp, const char __user *buf,
 {
 	struct rmidev_data *data = filp->private_data;
 	ssize_t retval  = 0;
-	unsigned char tmpbuf[RMI_CHAR_DEV_TMPBUF_SZ];
 
 	if (*f_pos > REG_ADDR_LIMIT) {
 		retval = -EINVAL;
@@ -233,14 +233,14 @@ static ssize_t rmidev_write(struct file *filp, const char __user *buf,
 		goto exit;
 	}
 
-	if (copy_from_user(tmpbuf, buf, count)) {
+	if (copy_from_user(data->tmpbuf, buf, count)) {
 		retval = -EFAULT;
 		goto exit;
 	}
 
 	mutex_lock(&(data->file_mutex));
 
-	retval = rmi_write_block(data, *f_pos, tmpbuf, count);
+	retval = rmi_write_block(data, *f_pos, data->tmpbuf, count);
 
 	if (retval >= 0)
 		*f_pos += count;

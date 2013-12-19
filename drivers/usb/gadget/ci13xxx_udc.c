@@ -367,7 +367,10 @@ static int hw_device_reset(struct ci13xxx *udc)
 	 * 8 micro frames. If CPU can handle interrupts at faster rate, ITC
 	 * can be set to lesser value to gain performance.
 	 */
-	if (udc->udc_driver->flags & CI13XXX_ZERO_ITC)
+	if (udc->udc_driver->nz_itc)
+		hw_cwrite(CAP_USBCMD, USBCMD_ITC_MASK,
+			USBCMD_ITC(udc->udc_driver->nz_itc));
+	else if (udc->udc_driver->flags & CI13XXX_ZERO_ITC)
 		hw_cwrite(CAP_USBCMD, USBCMD_ITC_MASK, USBCMD_ITC(0));
 
 	if (hw_cread(CAP_USBMODE, USBMODE_CM) != USBMODE_CM_DEVICE) {
@@ -1850,6 +1853,14 @@ static void ep_prime_timer_func(unsigned long data)
 
 
 	spin_lock_irqsave(mep->lock, flags);
+
+	if (_udc && (!_udc->vbus_active || _udc->suspended)) {
+		pr_debug("ep%d%s prime timer when vbus_active=%d,suspend=%d\n",
+			mep->num, mep->dir ? "IN" : "OUT",
+			_udc->vbus_active, _udc->suspended);
+		goto out;
+	}
+
 	if (!hw_cread(CAP_ENDPTPRIME, BIT(n)))
 		goto out;
 
@@ -2193,6 +2204,9 @@ __acquires(mEp->lock)
 
 	if (mEp == NULL)
 		return -EINVAL;
+
+	del_timer(&mEp->prime_timer);
+	mEp->prime_timer_count = 0;
 
 	hw_ep_flush(mEp->num, mEp->dir);
 
@@ -2923,8 +2937,6 @@ static int ep_disable(struct usb_ep *ep)
 
 	/* only internal SW should disable ctrl endpts */
 
-	del_timer(&mEp->prime_timer);
-	mEp->prime_timer_count = 0;
 	direction = mEp->dir;
 	do {
 		dbg_event(_usb_addr(mEp), "DISABLE", 0);
@@ -3279,8 +3291,6 @@ static void ep_fifo_flush(struct usb_ep *ep)
 
 	spin_lock_irqsave(mEp->lock, flags);
 
-	del_timer(&mEp->prime_timer);
-	mEp->prime_timer_count = 0;
 	dbg_event(_usb_addr(mEp), "FFLUSH", 0);
 	/*
 	 * _ep_nuke() takes care of flushing the endpoint.

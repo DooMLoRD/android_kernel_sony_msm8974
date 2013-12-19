@@ -2,7 +2,6 @@
  * dwc3_otg.h - DesignWare USB3 DRD Controller OTG
  *
  * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -43,7 +42,7 @@ struct dwc3_otg {
 	struct dwc3		*dwc;
 	void __iomem		*regs;
 	struct regulator	*vbus_otg;
-	struct work_struct	sm_work;
+	struct delayed_work	sm_work;
 	struct dwc3_charger	*charger;
 	struct dwc3_ext_xceiv	*ext_xceiv;
 #define ID		0
@@ -51,10 +50,10 @@ struct dwc3_otg {
 #define A_VBUS_DROP_DET	2
 	unsigned long inputs;
 	struct power_supply	*psy;
-	struct power_supply	*dc_psy;
 	struct completion	dwc3_xcvr_vbus_init;
 	int			host_bus_suspend;
 	int			charger_retry_count;
+	int			vbus_retry_count;
 };
 
 /**
@@ -119,8 +118,8 @@ struct dwc3_ext_xceiv {
 	void	(*notify_ext_events)(struct usb_otg *otg,
 					enum dwc3_ext_events ext_event);
 	/* for block reset USB core */
-	void	(*ext_block_reset)(bool core_reset);
-
+	void	(*ext_block_reset)(struct dwc3_ext_xceiv *ext_xceiv,
+					bool core_reset);
 	/* to register ocp_notification */
 	struct regulator_ocp_notification ext_ocp_notification;
 };

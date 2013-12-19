@@ -1,4 +1,5 @@
 /* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,6 +23,7 @@
 #include <linux/memory.h>
 #include <linux/regulator/machine.h>
 #include <linux/regulator/krait-regulator.h>
+#include <linux/memory.h>
 #include <linux/memblock.h>
 #include <asm/setup.h>
 #include <linux/msm_tsens.h>
@@ -42,12 +44,14 @@
 #include <mach/rpm-smd.h>
 #include <mach/rpm-regulator-smd.h>
 #include <mach/socinfo.h>
+#include <mach/msm_smem.h>
+#include <mach/msm_memory_dump.h>
 #include "board-dt.h"
 #include "clock.h"
 #include "devices.h"
 #include "spm.h"
+#include "pm.h"
 #include "modem_notifier.h"
-#include "lpm_resources.h"
 #include "platsmp.h"
 #ifdef CONFIG_RAMDUMP_TAGS
 #include "board-rdtags.h"
@@ -68,6 +72,11 @@ static int msm8974_paddr_to_memtype(phys_addr_t paddr)
 {
 	return MEMTYPE_EBI1;
 }
+
+static struct reserve_info msm8974_reserve_info __initdata = {
+	.memtype_reserve_table = msm8974_reserve_table,
+	.paddr_to_memtype = msm8974_paddr_to_memtype,
+};
 
 #ifdef CONFIG_RAMDUMP_TAGS
 static struct resource rdtags_resources[] = {
@@ -156,11 +165,6 @@ static void reserve_debug_memory(void)
 }
 #endif
 
-static struct reserve_info msm8974_reserve_info __initdata = {
-	.memtype_reserve_table = msm8974_reserve_table,
-	.paddr_to_memtype = msm8974_paddr_to_memtype,
-};
-
 void __init msm_8974_reserve(void)
 {
 #if defined(CONFIG_RAMDUMP_TAGS) || defined(CONFIG_CRASH_LAST_LOGS)
@@ -195,10 +199,11 @@ void __init msm8974_add_devices(void)
  */
 void __init msm8974_add_drivers(void)
 {
+	msm_smem_init();
 	msm_init_modem_notifier_list();
 	msm_smd_init();
 	msm_rpm_driver_init();
-	msm_lpmrs_module_init();
+	msm_pm_sleep_status_init();
 	rpm_regulator_smd_driver_init();
 	msm_spm_device_init();
 	krait_power_init();
@@ -268,7 +273,6 @@ void __init msm8974_init(void)
 	msm_8974_init_gpiomux();
 	regulator_has_full_constraints();
 	board_dt_populate(adata);
-
 	msm8974_add_devices();
 	msm8974_add_drivers();
 }
@@ -276,6 +280,11 @@ void __init msm8974_init(void)
 void __init msm8974_init_very_early(void)
 {
 	msm8974_early_memory();
+}
+
+void __init msm8974_init_early(void)
+{
+	msm_reserve_last_regs();
 }
 
 static const char *msm8974_dt_match[] __initconst = {
@@ -293,6 +302,7 @@ DT_MACHINE_START(MSM8974_DT, "Qualcomm MSM 8974 (Flattened Device Tree)")
 	.dt_compat = msm8974_dt_match,
 	.reserve = msm_8974_reserve,
 	.init_very_early = msm8974_init_very_early,
+	.init_early = msm8974_init_early,
 	.restart = msm_restart,
 	.smp = &msm8974_smp_ops,
 MACHINE_END
