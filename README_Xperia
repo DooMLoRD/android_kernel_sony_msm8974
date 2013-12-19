@@ -1,9 +1,7 @@
 Configuration files can be found in arch/arm/configs.
 
-    Xperia Z Ultra    => rhine_togari_row_defconfig
-    Xperia Z1         => rhine_honami_row_defconfig
-    Xperia Z1 SO-01F  => rhine_honami_dcm_defconfig
-    Xperia Z1 SOL23   => rhine_honami_kddi_defconfig
+    Xperia Z Ultra C6802 => rhine_togari_row_defconfig
+    Xperia Z1 C6903      => rhine_honami_row_defconfig
 
 
 How to build your kernel:

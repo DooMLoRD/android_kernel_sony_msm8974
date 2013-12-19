@@ -720,6 +720,7 @@ int ipa_rm_resource_producer_request(struct ipa_rm_resource_prod *producer)
 			producer->resource.name,
 			IPA_RM_RESOURCE_GRANTED,
 			true);
+		result = 0;
 	}
 unlock_and_bail:
 	spin_unlock_irqrestore(&producer->resource.state_lock, flags);
@@ -786,15 +787,11 @@ int ipa_rm_resource_producer_release(struct ipa_rm_resource_prod *producer)
 				&producer->resource.state_lock, flags);
 			consumer_result = ipa_rm_resource_consumer_release(
 				(struct ipa_rm_resource_cons *)consumer);
-			if (consumer_result == -EINPROGRESS) {
-				result = -EINPROGRESS;
-			} else {
-				spin_lock_irqsave(
-					&producer->resource.state_lock, flags);
-				producer->pending_release--;
-				spin_unlock_irqrestore(
-					&producer->resource.state_lock, flags);
-			}
+			spin_lock_irqsave(
+				&producer->resource.state_lock, flags);
+			producer->pending_release--;
+			spin_unlock_irqrestore(
+				&producer->resource.state_lock, flags);
 		}
 	}
 	spin_lock_irqsave(&producer->resource.state_lock, flags);

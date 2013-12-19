@@ -66,7 +66,11 @@ static void __set_pri_clk_src(struct scalable *sc, u32 pri_src_sel)
 
 	regval = get_l2_indirect_reg(sc->l2cpmr_iaddr);
 	regval &= ~0x3;
-	regval |= (pri_src_sel & 0x3);
+	regval |= pri_src_sel;
+	if (sc != &drv.scalable[L2]) {
+		regval &= ~(0x3 << 8);
+		regval |= pri_src_sel << 8;
+	}
 	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
 	/* Wait for switch to complete. */
 	mb();
@@ -80,11 +84,10 @@ static void __set_cpu_pri_clk_src(void *data)
 }
 
 /* Select a source on the primary MUX. */
-static void set_pri_clk_src(struct scalable *sc, u32 pri_src_sel,
-			    enum setrate_reason reason)
+static void set_pri_clk_src(struct scalable *sc, u32 pri_src_sel)
 {
-	if (reason == SETRATE_CPUFREQ && sc != &drv.scalable[L2]) {
-		int cpu = sc - drv.scalable;
+	int cpu = sc - drv.scalable;
+	if (sc != &drv.scalable[L2] && cpu_online(cpu)) {
 		struct set_clk_src_args args = {
 			.sc = sc,
 			.src_sel = pri_src_sel,
@@ -102,7 +105,11 @@ static void __cpuinit set_sec_clk_src(struct scalable *sc, u32 sec_src_sel)
 
 	regval = get_l2_indirect_reg(sc->l2cpmr_iaddr);
 	regval &= ~(0x3 << 2);
-	regval |= ((sec_src_sel & 0x3) << 2);
+	regval |= sec_src_sel << 2;
+	if (sc != &drv.scalable[L2]) {
+		regval &= ~(0x3 << 10);
+		regval |= sec_src_sel << 10;
+	}
 	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
 	/* Wait for switch to complete. */
 	mb();
@@ -232,7 +239,7 @@ static void set_bus_bw(unsigned int bw)
 
 /* Set the CPU or L2 clock speed. */
 static void set_speed(struct scalable *sc, const struct core_speed *tgt_s,
-	bool skip_regulators, enum setrate_reason reason)
+	bool skip_regulators)
 {
 	const struct core_speed *strt_s = sc->cur_speed;
 
@@ -244,7 +251,7 @@ static void set_speed(struct scalable *sc, const struct core_speed *tgt_s,
 		 * Move to an always-on source running at a frequency
 		 * that does not require an elevated CPU voltage.
 		 */
-		set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC, reason);
+		set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC);
 
 		/* Re-program HFPLL. */
 		hfpll_disable(sc, true);
@@ -252,14 +259,14 @@ static void set_speed(struct scalable *sc, const struct core_speed *tgt_s,
 		hfpll_enable(sc, true);
 
 		/* Move to HFPLL. */
-		set_pri_clk_src(sc, tgt_s->pri_src_sel, reason);
+		set_pri_clk_src(sc, tgt_s->pri_src_sel);
 	} else if (strt_s->src == HFPLL && tgt_s->src != HFPLL) {
-		set_pri_clk_src(sc, tgt_s->pri_src_sel, reason);
+		set_pri_clk_src(sc, tgt_s->pri_src_sel);
 		hfpll_disable(sc, skip_regulators);
 	} else if (strt_s->src != HFPLL && tgt_s->src == HFPLL) {
 		hfpll_set_rate(sc, tgt_s);
 		hfpll_enable(sc, skip_regulators);
-		set_pri_clk_src(sc, tgt_s->pri_src_sel, reason);
+		set_pri_clk_src(sc, tgt_s->pri_src_sel);
 	}
 
 	sc->cur_speed = tgt_s;
@@ -567,7 +574,7 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	skip_regulators = (reason == SETRATE_PC);
 
 	/* Set the new CPU speed. */
-	set_speed(&drv.scalable[cpu], tgt_acpu_s, skip_regulators, reason);
+	set_speed(&drv.scalable[cpu], tgt_acpu_s, skip_regulators);
 
 	/*
 	 * Update the L2 vote and apply the rate change. A spinlock is
@@ -578,8 +585,8 @@ static int acpuclk_krait_set_rate(int cpu, unsigned long rate,
 	 */
 	spin_lock(&l2_lock);
 	tgt_l2_l = compute_l2_level(&drv.scalable[cpu], tgt->l2_level);
-	set_speed(&drv.scalable[L2], &drv.l2_freq_tbl[tgt_l2_l].speed,
-		  true, reason);
+	set_speed(&drv.scalable[L2],
+			&drv.l2_freq_tbl[tgt_l2_l].speed, true);
 	spin_unlock(&l2_lock);
 
 	/* Nothing else to do for power collapse or SWFI. */
@@ -805,18 +812,20 @@ static int __cpuinit init_clock_sources(struct scalable *sc,
 
 	/* Switch away from the HFPLL while it's re-initialized. */
 	set_sec_clk_src(sc, sc->sec_clk_sel);
-	set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC, SETRATE_INIT);
+	set_pri_clk_src(sc, PRI_SRC_SEL_SEC_SRC);
 	hfpll_init(sc, tgt_s);
 
 	/* Set PRI_SRC_SEL_HFPLL_DIV2 divider to div-2. */
 	regval = get_l2_indirect_reg(sc->l2cpmr_iaddr);
 	regval &= ~(0x3 << 6);
+	if (sc != &drv.scalable[L2])
+		regval &= ~(0x3 << 14);
 	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
 
 	/* Enable and switch to the target clock source. */
 	if (tgt_s->src == HFPLL)
 		hfpll_enable(sc, false);
-	set_pri_clk_src(sc, tgt_s->pri_src_sel, SETRATE_INIT);
+	set_pri_clk_src(sc, tgt_s->pri_src_sel);
 	sc->cur_speed = tgt_s;
 
 	return 0;
@@ -1083,15 +1092,17 @@ void __init get_krait_bin_format_b(void __iomem *base, struct bin_info *bin)
 
 	pte_efuse = readl_relaxed(base);
 	redundant_sel = (pte_efuse >> 24) & 0x7;
+	bin->pvs_rev = (pte_efuse >> 4) & 0x3;
 	bin->speed = pte_efuse & 0x7;
-	bin->pvs = (pte_efuse >> 6) & 0x7;
+	/* PVS number is in bits 31, 8, 7, 6 */
+	bin->pvs = ((pte_efuse >> 28) & 0x8) | ((pte_efuse >> 6) & 0x7);
 
 	switch (redundant_sel) {
 	case 1:
-		bin->speed = (pte_efuse >> 27) & 0x7;
+		bin->speed = (pte_efuse >> 27) & 0xF;
 		break;
 	case 2:
-		bin->pvs = (pte_efuse >> 27) & 0x7;
+		bin->pvs = (pte_efuse >> 27) & 0xF;
 		break;
 	}
 	bin->speed_valid = true;
@@ -1127,13 +1138,15 @@ static struct pvs_table * __init select_freq_plan(
 	if (bin.pvs_valid) {
 		drv.pvs_bin = bin.pvs;
 		dev_info(drv.dev, "ACPU PVS: %d\n", drv.pvs_bin);
+		drv.pvs_rev = bin.pvs_rev;
+		dev_info(drv.dev, "ACPU PVS REVISION: %d\n", drv.pvs_rev);
 	} else {
 		drv.pvs_bin = 0;
 		dev_warn(drv.dev, "ACPU PVS: Defaulting to %d\n",
 			 drv.pvs_bin);
 	}
 
-	return &params->pvs_tables[drv.speed_bin][drv.pvs_bin];
+	return &params->pvs_tables[drv.pvs_rev][drv.speed_bin][drv.pvs_bin];
 }
 
 static void __init drv_data_init(struct device *dev,

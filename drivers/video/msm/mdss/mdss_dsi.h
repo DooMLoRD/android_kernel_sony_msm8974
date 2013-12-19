@@ -307,74 +307,61 @@ struct dsi_kickoff_action {
 	void *data;
 };
 
-struct mdss_pcc_cfg_rgb {
-	uint32_t r;
-	uint32_t g;
-	uint32_t b;
+struct mdss_pcc_color_tbl {
+	u32 color_type;
+	u32 area_num;
+	u32 u_min;
+	u32 u_max;
+	u32 v_min;
+	u32 v_max;
+	u32 r_data;
+	u32 g_data;
+	u32 b_data;
 } __packed;
 
+struct mdss_pcc_data {
+	struct mdss_pcc_color_tbl *color_tbl;
+	u32 tbl_size;
+	u8 tbl_idx;
+	u32 u_data;
+	u32 v_data;
+	int param_type;
+};
+
 struct mdss_panel_specific_pdata {
-	int (*panel_power_on) (struct mdss_panel_data *pdata, int enable);
-	int (*disp_on) (struct mdss_panel_data *pdata);
-	int (*update_fps) (struct msm_fb_data_type *mfd);
-	struct mdss_dsi_drv_pdata *dsi_drv;
-	int driver_ic;
-	int disp_on_in_hs;
 	bool detected;
-	int cabc_enabled;
-	int wait_time_before_on_cmd;
-	int init_from_begin;
-};
-
-struct dsi_panel_cmds_list {
-	struct dsi_cmd_desc *buf;
-	u32 size;
-	char ctrl_state;
-};
-
-struct mdss_panel_common_pdata {
-	struct mdss_panel_info panel_info;
-	int (*on) (struct mdss_panel_data *pdata);
-	int (*off) (struct mdss_panel_data *pdata);
-	int (*reset) (struct mdss_panel_data *pdata, int enable);
-	void (*bl_fnc) (struct mdss_panel_data *pdata, u32 bl_level);
-
-	int cabc_enabled;
-	struct dsi_panel_cmds cabc_early_on_cmds;
-	struct dsi_panel_cmds cabc_on_cmds;
-#ifdef CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL
-	struct dsi_panel_cmds cabc_off_cmds[MAX_CMDS];
-	struct dsi_panel_cmds cabc_late_off_cmds[MAX_CMDS];
-#else
-	struct dsi_panel_cmds cabc_off_cmds;
-	struct dsi_panel_cmds cabc_late_off_cmds;
-#endif	/* CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL */
-	struct dsi_panel_cmds cabc_deferred_on_cmds;
-
-	struct dsi_panel_cmds einit_cmds;
-	struct dsi_panel_cmds init_cmds;
-	struct dsi_panel_cmds on_cmds;
-#ifdef CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL
-	struct dsi_panel_cmds off_cmds[MAX_CMDS];
-#else
-	struct dsi_panel_cmds off_cmds;
-#endif	/* CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL */
-	struct dsi_panel_cmds id_read_cmds;
-	int (*panel_power_on) (struct mdss_panel_data *pdata, int enable);
-	int (*disp_on) (struct mdss_panel_data *pdata);
-	int (*detect) (struct mdss_panel_data *pdata);
-	int (*update_panel) (struct mdss_panel_data *pdata);
-	int (*update_fps) (struct msm_fb_data_type *mfd);
 	int driver_ic;
 	int disp_on_in_hs;
 	int panel_detect;
 	int wait_time_before_on_cmd;
 	int init_from_begin;
+	int cabc_enabled;
+	int cabc_active;
+
+	struct dsi_panel_cmds cabc_early_on_cmds;
+	struct dsi_panel_cmds cabc_early_on_v3_cmds;
+	struct dsi_panel_cmds cabc_deferred_on_v3_cmds;
+	struct dsi_panel_cmds cabc_on_cmds;
+	struct dsi_panel_cmds cabc_off_cmds[MAX_CMDS];
+	struct dsi_panel_cmds cabc_late_off_cmds[MAX_CMDS];
+	struct dsi_panel_cmds cabc_deferred_on_cmds;
+
+	struct dsi_panel_cmds einit_cmds;
+	struct dsi_panel_cmds init_cmds;
+	struct dsi_panel_cmds off_cmds[MAX_CMDS];
+	struct dsi_panel_cmds id_read_cmds;
+
+	int (*panel_power_on) (struct mdss_panel_data *pdata, int enable);
+	int (*disp_on) (struct mdss_panel_data *pdata);
+	int (*detect) (struct mdss_panel_data *pdata);
+	int (*update_panel) (struct mdss_panel_data *pdata);
+	int (*update_fps) (struct msm_fb_data_type *mfd);
+	int (*reset) (struct mdss_panel_data *pdata, int enable);
 	int (*pcc_setup) (struct msm_fb_data_type *mfd);
+
 	struct dsi_panel_cmds pre_uv_read_cmds;
 	struct dsi_panel_cmds uv_read_cmds;
-	struct mdss_pcc_cfg_rgb *wide_tbl;
-	struct mdss_pcc_cfg_rgb *sub_tbl;
+	struct mdss_pcc_data pcc_data;
 };
 
 struct dsi_drv_cm_data {
@@ -394,49 +381,51 @@ struct mdss_dsi_ctrl_pdata {
 	int ndx;	/* panel_num */
 	int (*on) (struct mdss_panel_data *pdata);
 	int (*off) (struct mdss_panel_data *pdata);
+	int (*partial_update_fnc) (struct mdss_panel_data *pdata);
 	struct mdss_panel_data panel_data;
 	unsigned char *ctrl_base;
 	int reg_size;
 	u32 clk_cnt;
-	struct clk *mdp_core_clk;
 	struct clk *ahb_clk;
 	struct clk *axi_clk;
 	struct clk *byte_clk;
 	struct clk *esc_clk;
 	struct clk *pixel_clk;
 	u8 ctrl_state;
+	int panel_mode;
 	int irq_cnt;
 	int mdss_dsi_clk_on;
 	int rst_gpio;
 	int disp_en_gpio;
 	int disp_te_gpio;
+	int mode_gpio;
+	int rst_gpio_requested;
+	int disp_en_gpio_requested;
+	int disp_te_gpio_requested;
+	int mode_gpio_requested;
 	int bklt_ctrl;	/* backlight ctrl */
 	int pwm_period;
 	int pwm_pmic_gpio;
 	int pwm_lpg_chan;
 	int bklt_max;
+	int new_fps;
 	struct pwm_device *pwm_bl;
 	struct dsi_drv_cm_data shared_pdata;
 	u32 pclk_rate;
 	u32 byte_clk_rate;
 	struct dss_module_power power_data;
 	struct mdss_panel_specific_pdata *spec_pdata;
+	struct work_struct cabc_work;
 	u32 dsi_irq_mask;
 	struct mdss_hw *dsi_hw;
 
-	int cabc_active;
-	struct dsi_panel_cmds cabc_early_on_cmds;
-	struct dsi_panel_cmds cabc_on_cmds;
-	struct dsi_panel_cmds cabc_off_cmds;
-	struct dsi_panel_cmds cabc_late_off_cmds;
-	struct dsi_panel_cmds cabc_deferred_on_cmds;
-	struct work_struct cabc_work;
-
-	struct dsi_panel_cmds einit_cmds;
-	struct dsi_panel_cmds init_cmds;
 	struct dsi_panel_cmds on_cmds;
 	struct dsi_panel_cmds off_cmds;
-	struct dsi_panel_cmds id_read_cmds;
+
+#ifdef CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL
+	struct dsi_panel_cmds cabc_off_cmds;
+	struct dsi_panel_cmds cabc_late_off_cmds;
+#endif	/* CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL */
 
 	struct dcs_cmd_list cmdlist;
 	struct completion dma_comp;
@@ -452,8 +441,8 @@ struct mdss_dsi_ctrl_pdata {
 	struct dsi_buf rx_buf;
 };
 
-int dsi_panel_device_register(struct platform_device *pdev,
-			      struct mdss_panel_common_pdata *panel_data);
+int dsi_panel_device_register(struct device_node *pan_node,
+				struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 int mdss_dsi_panel_power_detect(struct platform_device *pdev, int enable);
 
 char *mdss_dsi_buf_reserve_hdr(struct dsi_buf *dp, int hlen);
@@ -469,6 +458,8 @@ int mdss_dsi_cmds_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 
 void mdss_dsi_host_init(struct mipi_panel_info *pinfo,
 				struct mdss_panel_data *pdata);
+void mdss_dsi_set_tear_on(struct mdss_dsi_ctrl_pdata *ctrl);
+void mdss_dsi_set_tear_off(struct mdss_dsi_ctrl_pdata *ctrl);
 void mdss_dsi_op_mode_config(int mode,
 				struct mdss_panel_data *pdata);
 void mdss_dsi_cmd_mode_ctrl(int enable);
@@ -487,15 +478,16 @@ irqreturn_t mdss_dsi_isr(int irq, void *ptr);
 void mdss_dsi_irq_handler_config(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 
 void mdss_set_tx_power_mode(int mode, struct mdss_panel_data *pdata);
-int mdss_dsi_clk_div_config(u8 bpp, u8 lanes,
-			    u32 *expected_dsi_pclk);
+int mdss_dsi_clk_div_config(struct mdss_panel_info *panel_info,
+			    int frame_rate);
 int mdss_dsi_clk_init(struct platform_device *pdev,
 		      struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 void mdss_dsi_clk_deinit(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 int mdss_dsi_enable_bus_clocks(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 void mdss_dsi_disable_bus_clocks(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 void mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable);
-void mdss_dsi_phy_enable(unsigned char *ctrl_base, int on);
+
+void mdss_dsi_phy_enable(struct mdss_dsi_ctrl_pdata *ctrl, int on);
 void mdss_dsi_phy_init(struct mdss_panel_data *pdata);
 void mdss_dsi_phy_sw_reset(unsigned char *ctrl_base);
 void mdss_dsi_cmd_test_pattern(struct mdss_panel_data *pdata);
@@ -512,4 +504,7 @@ void mdss_dsi_cmdlist_kickoff(int intf);
 
 int mdss_dsi_panel_fps_data_update(struct msm_fb_data_type *mfd);
 
+int mdss_dsi_panel_init(struct device_node *node,
+		struct mdss_dsi_ctrl_pdata *ctrl_pdata,
+		bool cmd_cfg_cont_splash);
 #endif /* MDSS_DSI_H */

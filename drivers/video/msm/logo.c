@@ -103,7 +103,7 @@ int load_565rle_image(char *filename)
 				(line_pos + n > width ? width-line_pos : n);
 
 			if (fb_depth(info) == 2)
-				memset16(bits, swab16(ptr[1]), j << 1);
+				memset16(bits, ptr[1], j << 1);
 			else {
 				unsigned int widepixel = ptr[1];
 				/*

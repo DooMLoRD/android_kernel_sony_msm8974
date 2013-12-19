@@ -1,3 +1,4 @@
+
 /* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  * Copyright (C) 2012-2013 Sony Mobile Communications AB.
  *
@@ -163,18 +164,8 @@ static int pm8941_regulator_init(struct device *dev,
 		dev_err(dev, "%s: regulator_get failed on %s. rc=%d\n",
 			__func__, regulator_name, rc);
 		rc = rc ? rc : -ENODEV;
-		goto err_boost;
-	} else {
-		rc = regulator_set_voltage(ctrl->regulator, 5000000, 5000000);
-		if (rc)
-			goto err_boost_set;
+		ctrl->regulator = NULL;
 	}
-	return rc;
-err_boost_set:
-	regulator_put(ctrl->regulator);
-err_boost:
-	ctrl->regulator = NULL;
-
 	return rc;
 }
 

@@ -27,6 +27,7 @@
 #include <linux/cpumask.h>
 #include <linux/sched.h>
 #include <linux/suspend.h>
+#include <trace/events/power.h>
 #include <mach/socinfo.h>
 #include <mach/cpufreq.h>
 
@@ -98,9 +99,12 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq)
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
+	trace_cpu_frequency_switch_start(freqs.old, freqs.new, policy->cpu);
 	ret = acpuclk_set_rate(policy->cpu, new_freq, SETRATE_CPUFREQ);
-	if (!ret)
+	if (!ret) {
+		trace_cpu_frequency_switch_end(policy->cpu);
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
+	}
 
 	/* Restore priority after clock ramp-up */
 	if (freqs.new > freqs.old && saved_sched_policy >= 0) {
@@ -385,8 +389,7 @@ static int __init msm_cpufreq_register(void)
 		per_cpu(cpufreq_suspend, cpu).device_suspended = 0;
 	}
 
-	msm_cpufreq_wq = alloc_workqueue("msm-cpufreq",
-			WQ_MEM_RECLAIM | WQ_HIGHPRI, 1);
+	msm_cpufreq_wq = alloc_workqueue("msm-cpufreq", WQ_HIGHPRI, 0);
 	register_hotcpu_notifier(&msm_cpufreq_cpu_notifier);
 
 	return cpufreq_register_driver(&msm_cpufreq_driver);

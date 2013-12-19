@@ -4,7 +4,6 @@
  *  Copyright (C) 2007 Google Inc,
  *  Copyright (C) 2003 Deep Blue Solutions, Ltd, All Rights Reserved.
  *  Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
- *  Copyright (c) 2013 Sony Mobile Communications AB.
  *
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1657,6 +1656,13 @@ static void msmsdcc_sg_stop(struct msmsdcc_host *host)
 	sg_miter_stop(&host->pio.sg_miter);
 }
 
+static inline void msmsdcc_clear_pio_irq_mask(struct msmsdcc_host *host)
+{
+	writel_relaxed(readl_relaxed(host->base + MMCIMASK0) & ~MCI_IRQ_PIO,
+			host->base + MMCIMASK0);
+	mb();
+}
+
 static irqreturn_t
 msmsdcc_pio_irq(int irq, void *dev_id)
 {
@@ -1669,7 +1675,7 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 
 	spin_lock(&host->lock);
 
-	if (!atomic_read(&host->clks_on)) {
+	if (!atomic_read(&host->clks_on) || !host->curr.data) {
 		spin_unlock(&host->lock);
 		return IRQ_NONE;
 	}
@@ -1720,25 +1726,19 @@ msmsdcc_pio_irq(int irq, void *dev_id)
 	msmsdcc_sg_stop(host);
 	local_irq_restore(flags);
 
+	if (!host->curr.xfer_remain) {
+		msmsdcc_clear_pio_irq_mask(host);
+		goto out_unlock;
+	}
+
 	if (status & MCI_RXACTIVE && host->curr.xfer_remain < MCI_FIFOSIZE) {
 		writel_relaxed((readl_relaxed(host->base + MMCIMASK0) &
-				(~(MCI_IRQ_PIO))) | MCI_RXDATAAVLBLMASK,
-				host->base + MMCIMASK0);
-		if (!host->curr.xfer_remain) {
-			/*
-			 * back to back write to MASK0 register don't need
-			 * synchronization delay.
-			 */
-			writel_relaxed((readl_relaxed(host->base + MMCIMASK0) &
-				(~(MCI_IRQ_PIO))) | 0, host->base + MMCIMASK0);
-		}
-		mb();
-	} else if (!host->curr.xfer_remain) {
-		writel_relaxed((readl_relaxed(host->base + MMCIMASK0) &
-				(~(MCI_IRQ_PIO))) | 0, host->base + MMCIMASK0);
+					~MCI_IRQ_PIO) | MCI_RXDATAAVLBLMASK,
+					host->base + MMCIMASK0);
 		mb();
 	}
 
+out_unlock:
 	spin_unlock(&host->lock);
 
 	return IRQ_HANDLED;
@@ -1832,6 +1832,7 @@ static void msmsdcc_do_cmdirq(struct msmsdcc_host *host, uint32_t status)
 			msmsdcc_sps_exit_curr_xfer(host);
 		}
 		else if (host->curr.data) { /* Non DMA */
+			msmsdcc_clear_pio_irq_mask(host);
 			msmsdcc_reset_and_restore(host);
 			msmsdcc_stop_data(host);
 			msmsdcc_request_end(host, cmd->mrq);
@@ -2003,6 +2004,7 @@ msmsdcc_irq(int irq, void *dev_id)
 					/* Stop current SPS transfer */
 					msmsdcc_sps_exit_curr_xfer(host);
 				} else {
+					msmsdcc_clear_pio_irq_mask(host);
 					msmsdcc_reset_and_restore(host);
 					if (host->curr.data)
 						msmsdcc_stop_data(host);
@@ -4317,56 +4319,6 @@ exit:
 	return rc;
 }
 
-/*
- * Work around of the unavailability of a power_reset functionality in SD cards
- * by turning the OFF & back ON the regulators supplying the SD card.
- */
-void msmsdcc_hw_reset(struct mmc_host *mmc)
-{
-	struct mmc_card *card = mmc->card;
-	struct msmsdcc_host *host = mmc_priv(mmc);
-	int rc;
-
-	/* Write-protection bits would be lost on a hardware reset in emmc */
-	if (!card || !mmc_card_sd(card))
-		return;
-
-	pr_debug("%s: Starting h/w reset\n", mmc_hostname(host->mmc));
-
-	if (host->plat->translate_vdd || host->plat->vreg_data) {
-
-		/* Disable the regulators */
-		if (host->plat->translate_vdd)
-			rc = host->plat->translate_vdd(mmc_dev(mmc), 0);
-		else if (host->plat->vreg_data)
-			rc = msmsdcc_setup_vreg(host, false, false);
-
-		if (rc) {
-			pr_err("%s: Failed to disable voltage regulator\n",
-				mmc_hostname(host->mmc));
-			BUG_ON(rc);
-		}
-
-		/* 10ms delay for supply to reach the desired voltage level */
-		usleep_range(10000, 12000);
-
-		/* Enable the regulators */
-		if (host->plat->translate_vdd)
-			rc = host->plat->translate_vdd(mmc_dev(mmc), 1);
-		else if (host->plat->vreg_data)
-			rc = msmsdcc_setup_vreg(host, true, false);
-
-		if (rc) {
-			pr_err("%s: Failed to enable voltage regulator\n",
-				mmc_hostname(host->mmc));
-			BUG_ON(rc);
-		}
-
-		/* 10ms delay for supply to reach the desired voltage level */
-		usleep_range(10000, 12000);
-	}
-}
-
 /**
  *	msmsdcc_stop_request - stops ongoing request
  *	@mmc: MMC host, running the request
@@ -4474,7 +4426,6 @@ static const struct mmc_host_ops msmsdcc_ops = {
 	.enable_sdio_irq = msmsdcc_enable_sdio_irq,
 	.start_signal_voltage_switch = msmsdcc_switch_io_voltage,
 	.execute_tuning = msmsdcc_execute_tuning,
-	.hw_reset = msmsdcc_hw_reset,
 	.stop_request = msmsdcc_stop_request,
 	.get_xfer_remain = msmsdcc_get_xfer_remain,
 	.notify_load = msmsdcc_notify_load,
@@ -5381,6 +5332,7 @@ static void msmsdcc_req_tout_timer_hdlr(unsigned long data)
 				/* Stop current SPS transfer */
 				msmsdcc_sps_exit_curr_xfer(host);
 			} else {
+				msmsdcc_clear_pio_irq_mask(host);
 				msmsdcc_reset_and_restore(host);
 				msmsdcc_stop_data(host);
 				if (mrq->data && mrq->data->stop)
@@ -6113,6 +6065,10 @@ msmsdcc_probe(struct platform_device *pdev)
 
 	msmsdcc_msm_bus_cancel_work_and_set_vote(host, &mmc->ios);
 
+	/* Disable SDHCi mode if supported */
+	if (is_sdhci_supported(host))
+		writel_relaxed(0, (host->base + MCI_CORE_HC_MODE));
+
 	/* Apply Hard reset to SDCC to put it in power on default state */
 	msmsdcc_hard_reset(host);
 
@@ -6158,7 +6114,6 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->caps |= plat->mmc_bus_width;
 	mmc->caps |= MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED;
 	mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY | MMC_CAP_ERASE;
-	mmc->caps |= MMC_CAP_HW_RESET;
 	/*
 	 * If we send the CMD23 before multi block write/read command
 	 * then we need not to send CMD12 at the end of the transfer.
@@ -6184,9 +6139,11 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->caps2 |= MMC_CAP2_PACKED_WR_CONTROL;
 	mmc->caps2 |= (MMC_CAP2_BOOTPART_NOACC | MMC_CAP2_DETECT_ON_ERR);
 	mmc->caps2 |= MMC_CAP2_SANITIZE;
+	mmc->caps2 |= MMC_CAP2_CACHE_CTRL;
+	mmc->caps2 |= MMC_CAP2_POWEROFF_NOTIFY;
 	mmc->caps2 |= MMC_CAP2_STOP_REQUEST;
-	mmc->caps2 |= MMC_CAP2_ASYNC_SDIO_IRQ_4BIT_MODE;
 	mmc->caps2 |= MMC_CAP2_INIT_BKOPS;
+	mmc->caps2 |= MMC_CAP2_ASYNC_SDIO_IRQ_4BIT_MODE;
 
 	if (plat->nonremovable)
 		mmc->caps |= MMC_CAP_NONREMOVABLE;
@@ -6344,10 +6301,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->clk_scaling.up_threshold = 35;
 	mmc->clk_scaling.down_threshold = 5;
 	mmc->clk_scaling.polling_delay_ms = 100;
-
-	if (plat->nonremovable == 0) {
-		mmc->caps2 |= MMC_CAP2_CLK_SCALE;
-	}
+	mmc->caps2 |= MMC_CAP2_CLK_SCALE;
 
 	pr_info("%s: Qualcomm MSM SDCC-core %pr %pr,%d dma %d dmacrcri %d\n",
 		mmc_hostname(mmc), core_memres, core_irqres,

@@ -1,8 +1,8 @@
 /* arch/arm/boot/dts/msm8974-rhine_togari_row.dtsi
  *
- * Copyright (C) 2012-2013 Sony Mobile Communications AB.
+ * Copyright (C) 2013 Sony Mobile Communications AB.
  *
- * Author: Yukito Naganuma <Yukito.X.Naganuma@sonymobile.com>
+ * Author: Kouhei Fujiya <Kouhei.X.Fujiya@sonymobile.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,17 +14,24 @@
  * GNU General Public License for more details.
  */
 
-&soc {
-	/* BLSP1-1 */
-	serial@f991e000 {
-		status = "ok";
-	};
+/include/ "dsi-panel-togari.dtsi"
 
+&soc {
 	qcom,hdmi_tx@fd922100 {
 		status = "ok";
 	};
 
-	/* BLSP1-1 */
+	/* BLSP2 */
+	serial@f991e000 {
+		status = "ok";
+	};
+
+	/* BLSP7 */
+	uart7: uart@f995d000 {
+		status = "disabled";
+	};
+
+	/* BLSP2 */
 	i2c_2: i2c@f9924000 {
 		cell-index = <0>;
 		compatible = "qcom,i2c-qup";
@@ -83,9 +90,13 @@
 			button_code3 = <0>;
 			enable_resume_por = <1>;
 		};
+
+		atmel_mxt_ts@4a {
+			status = "disabled";
+		};
 	};
 
-	/* BLSP1-3 */
+	/* BLSP4 */
 	i2c@f9926000 {
 		cell-index = <1>;
 		compatible = "qcom,i2c-qup";
@@ -101,7 +112,7 @@
 		status = "ok";
 	};
 
-	/* BLSP1-5 */
+	/* BLSP6 */
 	i2c@f9928000 {
 		cell-index = <2>;
 		compatible = "qcom,i2c-qup";
@@ -129,7 +140,7 @@
 		};
 	};
 
-	/* BLSP2-4 */
+	/* BLSP11 */
 	i2c_0: i2c@f9967000 {
 		cell-index = <4>;
 		qcom,i2c-bus-freq = <355000>;
@@ -144,17 +155,25 @@
 			mhl-rst-gpio = <&msmgpio 16 0>;
 			qcom,hdmi-tx-map = <&mdss_hdmi_tx>;
 		};
+
+		isa1200@48 {
+			status = "disabled";
+		};
 	};
 
-	spi@f9923000 {
+	/* BLSP1 */
+	spi_0: spi@f9923000 {
 		status = "disabled";
+
 		ethernet-switch@2 {
 			status = "disabled";
 		};
 	};
 
-	spi@f9966000 {
+	/* BLSP10 */
+	spi_7: spi_epm: spi@f9966000 {
 		status = "disabled";
+
 		epm-adc@0 {
 			status = "disabled";
 		};
@@ -200,17 +219,6 @@
 			gpio-key,wakeup;
 			debounce-interval = <10>;
 		};
-	};
-
-	slim@fe12f000 {
-		/* should be added for eS325 settings? same as taiko_codec? */
-		/* or place settings on kernel code? */
-	};
-
-	qcom,cam_server {
-		compatible = "qcom,cam_server";
-		reg = <0xfd8C0000 0x10000>;
-		reg-names = "server";
 	};
 
 	qcom,cci@fda0C000 {
@@ -266,7 +274,7 @@
 			sony,gpio_af = <0>;
 			sony,subdev_code = <0x3007>;
 
-			sony,power_sequence {
+			sony,camera_modules {
 				module_names = "GENERIC", "SOI08BS2";
 				default_module_name = "SOI08BS2";
 
@@ -397,7 +405,7 @@
 			sony,gpio_af = <0>;
 			sony,subdev_code = <0x3007>;
 
-			sony,power_sequence {
+			sony,camera_modules {
 				module_names = "GENERIC", "LGI02BN0",
 						"SEM02BN0", "LGI02BN1",
 						"SEM02BN1";
@@ -606,16 +614,6 @@
 		};
 	};
 
-	qcom,mdss_mdp@fd900000 {
-		mdss_fb0: qcom,mdss_fb_primary {
-			qcom,memory-reservation-size = <0x1000000>; /* size 16MB */
-		};
-	};
-
-	mdss_dsi0: qcom,mdss_dsi@fd922800 {
-		vdd-supply = <&pm8941_lvs3>;
-	};
-
 	sound {
 		qcom,audio-routing =
 			"RX_BIAS", "MCLK",
@@ -650,10 +648,6 @@
 		};
 	};
 
-	usb_otg: usb@f9a55000 {
-		status = "ok";
-	};
-
 	gpio_hw_ids {
 		compatible = "gpio_hw_ids";
 
@@ -662,6 +656,10 @@
 			<&pm8941_gpios 7 0>,
 			<&pm8941_gpios 14 0>;
 	};
+
+	qcom,msm-thermal {
+		qcom,pmic-sw-mode-regs = "vdd_dig";
+	};
 };
 
 &mdss_hdmi_tx {
@@ -669,7 +667,7 @@
 	qcom,hdmi-tx-supply-names = "hpd-gdsc", "core-vdda", "core-vcc";
 	qcom,hdmi-tx-min-voltage-level = <0 1800000 1800000>;
 	qcom,hdmi-tx-max-voltage-level = <0 1800000 1800000>;
-	qcom,hdmi-tx-peak-current = <0 1800000 0>;
+	qcom,hdmi-tx-peak-current = <0 300000 0>;
 };
 
 &pm8941_chg {
@@ -698,15 +696,12 @@
 	qcom,low-soc-calculate-soc-threshold = <5>;
 	qcom,low-soc-calculate-soc-ms = <1000>;
 	qcom,calculate-soc-ms = <30000>;
+	qcom,chg-term-ua = <150000>;
 	qcom,use-external-rsense = <1>;
 	qcom,batt-type = <3>;
 	qcom,shutdown-soc-valid-limit = <40>;
 	qcom,clamp-soc-max-count = <2>;
-	qcom,enable-fcc-learning;
-	qcom,min-fcc-learning-soc = <20>;
-	qcom,min-fcc-ocv-pc = <30>;
-	qcom,min-fcc-learning-samples = <5>;
-	qcom,fcc-resolution = <10>;
+	qcom,fcc-resolution = <13>;
 };
 
 &pm8941_gpios {
@@ -1146,27 +1141,6 @@
 	};
 };
 
-&sdcc1 {
-	qcom,sup-voltages = <1800 1800>;
-};
-
-&sdcc2 {
-	#address-cells = <0>;
-	interrupt-parent = <&sdcc2>;
-	interrupts = <0 1 2>;
-	#interrupt-cells = <1>;
-	interrupt-map-mask = <0xffffffff>;
-	interrupt-map = <0 &intc 0 125 0
-			1 &intc 0 220 0
-			2 &msmgpio 62 0x3>;
-	interrupt-names = "core_irq", "bam_irq", "status_irq";
-	cd-gpios = <&msmgpio 62 0x1>;
-	qcom,sdcc-vdd-io-voltage_level = <2950000 2950000>;
-	qcom,pad-drv-on = <0x7 0x2 0x2>; /* 16mA, 6mA, 6mA */
-	qcom,bus-speed-mode = "SDR12", "SDR25", "SDR50", "DDR50";
-	qcom,current-limit = <400>;
-};
-
 &sdhc_1 {
 	qcom,bus-speed-mode = "DDR_1p8v";
 };
@@ -1190,6 +1164,8 @@
 };
 
 &pm8941_boost { /* VREG_5V */
+	regulator-min-microvolt = <5100000>;
+	regulator-max-microvolt = <5100000>;
 	status = "ok";
 };
 
@@ -1204,6 +1180,7 @@
 &pm8941_l3 {
 	regulator-min-microvolt = <1200000>;
 	regulator-max-microvolt = <1200000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <1200000>;
 	qcom,init-ldo-mode = <1>;
 	status = "ok";
@@ -1264,6 +1241,7 @@
 &pm8941_l17 {
 	regulator-min-microvolt = <2700000>;
 	regulator-max-microvolt = <2700000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <2700000>;
 	qcom,init-ldo-mode = <1>;
 	status = "ok";
@@ -1272,6 +1250,7 @@
 &pm8941_l18 {
 	regulator-min-microvolt = <2850000>;
 	regulator-max-microvolt = <2850000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <2850000>;
 	status = "ok";
 };
@@ -1300,6 +1279,7 @@
 &pm8941_l22 {
 	regulator-min-microvolt = <3000000>;
 	regulator-max-microvolt = <3000000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <3000000>;
 	status = "ok";
 };
@@ -1307,6 +1287,7 @@
 &pm8941_l23 {
 	regulator-min-microvolt = <2600000>;
 	regulator-max-microvolt = <2600000>;
+	qcom,init-enable = <0>;
 	qcom,init-voltage = <2600000>;
 	qcom,init-ldo-mode = <1>;
 	status = "ok";
@@ -1317,18 +1298,22 @@
 };
 
 &pm8941_lvs1 {
+	qcom,init-enable = <0>;
 	status = "ok";
 };
 
 &pm8941_lvs2 {
+	qcom,init-enable = <0>;
 	status = "ok";
 };
 
 &pm8941_lvs3 {
+	qcom,init-enable = <0>;
 	status = "ok";
 };
 
 &pm8941_mvs1 { /* VREG_OTG */
+	qcom,pull-down-enable = <1>;
 	status = "ok";
 };
 
@@ -1381,28 +1366,18 @@
 	};
 };
 
-&usb_otg {
-	qcom,hsusb-otg-phy-init-seq = <0x74 0x80
-					0x06 0x81
-					0x30 0x82
-					0x13 0x83
-					0xffffffff>;
-};
-
 &usb3 {
 	qcom,dwc-hsphy-init = <0x00D0CC27>;
-	interrupt-parent = <&usb3>;
-	interrupts = <0 1>;
-	#interrupt-cells = <1>;
-	interrupt-map-mask = <0x0 0xffffffff>;
-	interrupt-map = <0x0 0 &intc 0 133 0
-			 0x0 1 &spmi_bus 0x0 0x0 0x9 0x0>;
-	interrupt-names = "hs_phy_irq", "pmic_id_irq";
-	qcom,misc-ref = <&pm8941_misc>;
 };
 
 &spmi_bus {
 	qcom,pm8941@0 {
+		vadc@3100 {
+			chan@b4 {
+				qcom,scale-function = <8>;
+			};
+		};
+
 		qcom,vadc@3400 {
 			chan@30 {
 				qcom,hw-settle-time = <15>;
@@ -1415,6 +1390,58 @@
 			chan@6 {
 				qcom,hw-settle-time = <15>;
 			};
+
+			chan@b4 {
+				qcom,scale-function = <4>;
+			};
 		};
+	};
+};
+
+&mdss_mdp {
+	qcom,mdss-pref-prim-intf = "dsi";
+};
+
+&mdss_fb0 {
+	qcom,memory-reservation-size = <0x1000000>; /* size 16MB */
+};
+
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&dsi_renesas_default>;
+	vdd-supply = <&pm8941_lvs3>;
+	qcom,platform-enable-gpio = <&msmgpio 46 1>;
+	qcom,platform-lane-config = [];
+	qcom,platform-supply-entry1 {
+			qcom,supply-name = "vdd";
+			qcom,supply-min-voltage = <0>;
+			qcom,supply-max-voltage = <0>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-pre-on-sleep = <0>;
+			qcom,supply-post-on-sleep = <0>;
+			qcom,supply-pre-off-sleep = <0>;
+			qcom,supply-post-off-sleep = <0>;
+	};
+	qcom,platform-supply-entry2 {
+			qcom,supply-name = "vddio";
+			qcom,supply-min-voltage = <1800000>;
+			qcom,supply-max-voltage = <1800000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-pre-on-sleep = <0>;
+			qcom,supply-post-on-sleep = <0>;
+			qcom,supply-pre-off-sleep = <0>;
+			qcom,supply-post-off-sleep = <0>;
+	};
+	qcom,platform-supply-entry3 {
+			qcom,supply-name = "vdda";
+			qcom,supply-min-voltage = <1200000>;
+			qcom,supply-max-voltage = <1200000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-pre-on-sleep = <0>;
+			qcom,supply-post-on-sleep = <0>;
+			qcom,supply-pre-off-sleep = <0>;
+			qcom,supply-post-off-sleep = <0>;
 	};
 };

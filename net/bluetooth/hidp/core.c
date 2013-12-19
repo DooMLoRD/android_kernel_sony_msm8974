@@ -1,9 +1,9 @@
 /*
    HIDP implementation for Linux Bluetooth stack (BlueZ).
    Copyright (C) 2003-2004 Marcel Holtmann <marcel@holtmann.org>
-   Copyright (c) 2012 The Linux Foundation.  All rights reserved.
+   Copyright (c) 2012-2013 The Linux Foundation.  All rights reserved.
    Copyright 2011,2012 Sony Corporation
-   Copyright (c) 2012-2013 Sony Mobile Communications AB.
+   Copyright (c) 2012 Sony Mobile Communications AB.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License version 2 as
@@ -1084,11 +1084,9 @@ int hidp_add_connection(struct hidp_connadd_req *req, struct socket *ctrl_sock, 
 			!session->waiting_for_startup);
 	}
 
-	if (session->hid) {
-		err = hid_add_device(session->hid);
-		if (err < 0)
-			goto err_add_device;
-	}
+	err = hid_add_device(session->hid);
+	if (err < 0)
+		goto err_add_device;
 
 	if (session->input) {
 		hidp_send_ctrl_message(session,

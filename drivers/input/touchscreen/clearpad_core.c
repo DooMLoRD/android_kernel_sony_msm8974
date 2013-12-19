@@ -55,6 +55,7 @@
 #define SYNAPTICS_STRING_LENGTH			128
 #define SYNAPTICS_RETRY_NUM_OF_INITIAL_CHECK	2
 #define SYNAPTICS_RETRY_NUM_OF_PROBE_CHECK	3
+#define SYNAPTICS_RETRY_NUM_OF_RESET 5
 #define SYNAPTICS_FINGER_OFF(n, x, s) \
 	((((n) / 4) + !!(n % 4)) + (s) * (x))
 #define SYNAPTICS_REG_MAX \
@@ -94,6 +95,8 @@
 #define PEN_DETECT_F12_INTERRUPT			0x02
 #define PEN_DETECT_INT_ENABLE				0x01
 #define PEN_DETECT_INT_DISABLE				0x00
+#define GLOVE_MODE_ENABLE				0x01
+#define GLOVE_MODE_DISABLE				0x02
 #define XY_REPORTING_MODE				0x07
 #define XY_HAS_LPWG					0x10
 #define XY_REPORTING_MODE_REDUCED_REPORTING_MODE	0x01
@@ -204,6 +207,7 @@ enum synaptics_clearpad_function {
 	SYN_F11_2D,
 	SYN_F12_2D,
 	SYN_F34_FLASH,
+	SYN_F51_CUSTOM,
 	SYN_F54_ANALOG,
 	SYN_F55_SENSOR,
 	SYN_N_FUNCTIONS,
@@ -215,6 +219,7 @@ static const u8 function_value[] = {
 	[SYN_F11_2D]		= 0x11,
 	[SYN_F12_2D]		= 0x12,
 	[SYN_F34_FLASH]		= 0x34,
+	[SYN_F51_CUSTOM]	= 0x51,
 	[SYN_F54_ANALOG]	= 0x54,
 	[SYN_F55_SENSOR]	= 0x55,
 	[SYN_N_FUNCTIONS]	= 0x00,
@@ -320,6 +325,7 @@ struct synaptics_point {
 enum synaptics_tool {
 	SYN_TOOL_FINGER	= 0x01,
 	SYN_TOOL_PEN	= 0x02,
+	SYN_TOOL_GLOVE  = 0x03,
 };
 
 struct synaptics_pointer {
@@ -438,7 +444,6 @@ struct synaptics_clearpad {
 	int irq_mask;
 #ifdef CONFIG_FB
 	struct notifier_block fb_notif;
-	bool pm_suspended;
 	struct work_struct notify_resume;
 	struct work_struct notify_suspend;
 #endif
@@ -452,6 +457,7 @@ struct synaptics_clearpad {
 	struct dentry *debugfs;
 #endif
 	u32 pen_enabled;
+	u32 glove_enabled;
 	unsigned long ew_timeout;
 	struct delayed_work wd_poll_work;
 	int wd_poll_t_jf;
@@ -460,10 +466,13 @@ struct synaptics_clearpad {
 	bool irq_pending;
 	u8 default_reporting_mode;
 	u32 por_delay_after;
+	u32 reset_count;
+	const char *reset_cause;
 };
 
 static void synaptics_funcarea_initialize(struct synaptics_clearpad *this);
-static void synaptics_clearpad_reset_power(struct synaptics_clearpad *this);
+static void synaptics_clearpad_reset_power(struct synaptics_clearpad *this,
+					   const char *cause);
 
 static char *make_string(u8 *array, size_t size)
 {
@@ -741,6 +750,29 @@ static int synaptics_clearpad_set_pen(struct synaptics_clearpad *this)
 		dev_warn(&this->pdev->dev, "pen is not supported\n");
 	}
 exit:
+	return rc;
+}
+
+static int synaptics_clearpad_set_glove_mode(struct synaptics_clearpad *this)
+{
+	int rc = 0;
+
+	if (this->chip == SYN_CHIP_3200 || this->chip == SYN_CHIP_3400) {
+		if (this->pdt[SYN_F51_CUSTOM].number
+				== function_value[SYN_F51_CUSTOM])
+			rc = synaptics_put(this, SYNF(F51_CUSTOM,
+					CTRL, 0x03),
+					this->glove_enabled ?
+					GLOVE_MODE_ENABLE :
+					GLOVE_MODE_DISABLE);
+		if (rc)
+			dev_err(&this->pdev->dev, "failed to set glove mode");
+		else
+			dev_info(&this->pdev->dev, "glove mode: %s",
+				 this->glove_enabled ? "ENABLE" : "DISABLE");
+	} else {
+		dev_warn(&this->pdev->dev, "glove mode is not supported\n");
+	}
 	return rc;
 }
 
@@ -1528,7 +1560,9 @@ static void synaptics_clearpad_wd_status_poll(struct work_struct *work)
 			dev_err(&this->pdev->dev, "%s, rc = %d\n",
 							__func__, rc);
 			dev_info(&this->pdev->dev, "Resetting device\n");
-			synaptics_clearpad_reset_power(this);
+			synaptics_clearpad_reset_power(this, __func__);
+		} else {
+			this->reset_count = 0;
 		}
 		schedule_delayed_work(&this->wd_poll_work, this->wd_poll_t_jf);
 	}
@@ -1830,7 +1864,9 @@ static int synaptics_clearpad_set_power(struct synaptics_clearpad *this)
 		dev_info(&this->pdev->dev, "no change (%d)\n", should_wake);
 
 	if (rc)
-		synaptics_clearpad_reset_power(this);
+		synaptics_clearpad_reset_power(this, __func__);
+	else
+		this->reset_count = 0;
 	UNLOCK(this);
 
 	if (this->pdata->watchdog_enable)
@@ -1839,14 +1875,32 @@ static int synaptics_clearpad_set_power(struct synaptics_clearpad *this)
 	return rc;
 }
 
-static void synaptics_clearpad_reset_power(struct synaptics_clearpad *this)
+static void synaptics_clearpad_reset_power(struct synaptics_clearpad *this,
+					   const char *cause)
 {
 	unsigned long flags;
 
 	if (this->flash_requested)
 		return;
 
-	dev_info(&this->pdev->dev, "power on reset\n");
+	if (cause && cause == this->reset_cause) {
+		if (this->reset_count >= SYNAPTICS_RETRY_NUM_OF_RESET) {
+			dev_info(&this->pdev->dev, "ignore reset request\n");
+			return;
+		} else {
+			this->reset_count++;
+		}
+	} else {
+		this->reset_cause = cause;
+		if (!cause) {
+			cause = "force";
+			this->reset_count = 0;
+		} else {
+			this->reset_count = 1;
+		}
+	}
+
+	dev_info(&this->pdev->dev, "power on reset (%s)\n", cause);
 
 	spin_lock_irqsave(&this->slock, flags);
 	this->dev_busy = false;
@@ -2068,12 +2122,22 @@ static void synaptics_funcarea_down(struct synaptics_clearpad *this,
 			cur->x -= pointer_data->offset_x;
 			cur->y -= pointer_data->offset_y;
 		}
-		if (cur->tool == SYN_TOOL_FINGER) {
-			cur->tool = MT_TOOL_FINGER;
-			idev = this->input;
-		} else {
+		if (cur->tool == SYN_TOOL_PEN) {
 			cur->tool = MT_TOOL_PEN;
 			idev = this->input_pen;
+		} else {
+			/* shift range if glove event */
+			if (cur->tool == SYN_TOOL_GLOVE) {
+				if (cur->z > 0)
+					cur->z += SYNAPTICS_MAX_Z_VALUE + 1;
+				else
+					cur->z = 0;
+			} else {
+				if (cur->z > SYNAPTICS_MAX_Z_VALUE)
+					cur->z = SYNAPTICS_MAX_Z_VALUE;
+			}
+			cur->tool = MT_TOOL_FINGER;
+			idev = this->input;
 		}
 		valid = idev->users > 0;
 		LOG_EVENT(this, "%s[%d]: (x,y)=(%d,%d) w=(%d,%d) z=%d t=%d\n",
@@ -2286,6 +2350,7 @@ static void synaptics_report_finger_n(struct synaptics_clearpad *this,
 
 	/* check finger state */
 	if (new_point.tool == SYN_TOOL_FINGER ||
+		(this->glove_enabled && new_point.tool == SYN_TOOL_GLOVE) ||
 		(this->pen_enabled && (new_point.tool == SYN_TOOL_PEN))) {
 
 		flip_config = clearpad_flip_config_get(
@@ -2494,7 +2559,7 @@ static int synaptics_clearpad_process_F01_RMI(struct synaptics_clearpad *this)
 			goto exit;
 		} else if ((DEVICE_STATUS_DEVICE_FAILURE == status) ||
 			(DEVICE_STATUS_UNCONFIGURED_DEVICE_FAILURE == status)) {
-			synaptics_clearpad_reset_power(this);
+			synaptics_clearpad_reset_power(this, NULL);
 			goto exit;
 		} else {
 			dev_info(&this->pdev->dev,
@@ -2524,7 +2589,7 @@ static int synaptics_clearpad_process_F11_2D(struct synaptics_clearpad *this)
 
 	if ((DEVICE_STATUS_DEVICE_FAILURE == status) ||
 	    (DEVICE_STATUS_UNCONFIGURED_DEVICE_FAILURE == status)) {
-		synaptics_clearpad_reset_power(this);
+		synaptics_clearpad_reset_power(this, NULL);
 		goto exit;
 	}
 
@@ -2562,7 +2627,7 @@ static int synaptics_clearpad_process_F12_2D(struct synaptics_clearpad *this)
 		goto exit;
 
 	if (DEVICE_STATUS_DEVICE_FAILURE == status) {
-		synaptics_clearpad_reset_power(this);
+		synaptics_clearpad_reset_power(this, NULL);
 		goto exit;
 	}
 
@@ -2633,7 +2698,9 @@ static int synaptics_clearpad_process_irq(struct synaptics_clearpad *this)
 unlock:
 	if (rc) {
 		dev_err(&this->pdev->dev, "%s: error %d\n", __func__, rc);
-		synaptics_clearpad_reset_power(this);
+		synaptics_clearpad_reset_power(this, __func__);
+	} else {
+		this->reset_count = 0;
 	}
 
 	UNLOCK(this);
@@ -3027,6 +3094,9 @@ static ssize_t synaptics_clearpad_state_show(struct device *dev,
 	else if (!strncmp(attr->attr.name, __stringify(pen), PAGE_SIZE))
 		snprintf(buf, PAGE_SIZE,
 			"%d", this->pen_enabled);
+	else if (!strncmp(attr->attr.name, __stringify(glove), PAGE_SIZE))
+		snprintf(buf, PAGE_SIZE,
+			"%d", this->glove_enabled);
 	else
 		snprintf(buf, PAGE_SIZE, "illegal sysfs file");
 	return strnlen(buf, PAGE_SIZE);
@@ -3120,6 +3190,24 @@ end:
 	return strnlen(buf, PAGE_SIZE);
 }
 
+static ssize_t synaptics_clearpad_glove_enabled_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t size)
+{
+	struct synaptics_clearpad *this = dev_get_drvdata(dev);
+	int rc = 0;
+
+	dev_dbg(&this->pdev->dev, "%s: start\n", __func__);
+
+	LOCK(this);
+	this->glove_enabled = sysfs_streq(buf, "1");
+	rc = synaptics_clearpad_set_glove_mode(this);
+	if (rc)
+		dev_err(&this->pdev->dev, "%s failed\n", __func__);
+	UNLOCK(this);
+	return rc ? rc : strnlen(buf, PAGE_SIZE);
+}
+
 static ssize_t synaptics_clearpad_pen_enabled_store(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf, size_t size)
@@ -3176,6 +3264,8 @@ static struct device_attribute clearpad_sysfs_attrs[] = {
 	__ATTR(enabled, S_IWUSR, 0, synaptics_clearpad_enabled_store),
 	__ATTR(pen, S_IRUGO | S_IWUSR, synaptics_clearpad_state_show,
 				synaptics_clearpad_pen_enabled_store),
+	__ATTR(glove, S_IRUGO | S_IWUSR, synaptics_clearpad_state_show,
+				synaptics_clearpad_glove_enabled_store),
 };
 
 static struct device_attribute clearpad_wakeup_gesture_attr =
@@ -3214,6 +3304,10 @@ static void clearpad_touch_config_dt(struct synaptics_clearpad *this)
 
 	if (of_property_read_u32(devnode, "pen_enabled", &this->pen_enabled))
 		dev_warn(&this->pdev->dev, "no pen_enabled config\n");
+
+	if (of_property_read_u32(devnode, "glove_enabled",
+		&this->glove_enabled))
+		dev_warn(&this->pdev->dev, "no glove_enabled config\n");
 
 	if (of_property_read_u32(devnode, "preset_x_max", &this->extents.x_max))
 		dev_warn(&this->pdev->dev, "no preset_x_max config\n");
@@ -3301,12 +3395,11 @@ static int synaptics_clearpad_suspend(struct device *dev)
 
 	LOG_STAT(this, "active: %x (task: %s)\n",
 		 this->active, task_name[this->task]);
-#ifdef CONFIG_FB
-	this->pm_suspended = true;
-#endif
 	UNLOCK(this);
 
 	rc = synaptics_clearpad_set_power(this);
+	if (rc && this->reset_count >= SYNAPTICS_RETRY_NUM_OF_RESET)
+		rc = 0; /* stop retry of recovery */
 	return rc;
 }
 
@@ -3325,12 +3418,11 @@ static int synaptics_clearpad_resume(struct device *dev)
 		 this->active, task_name[this->task]);
 
 	synaptics_funcarea_invalidate_all(this);
-#ifdef CONFIG_FB
-	this->pm_suspended = false;
-#endif
 	UNLOCK(this);
 
 	rc = synaptics_clearpad_set_power(this);
+	if (rc && this->reset_count >= SYNAPTICS_RETRY_NUM_OF_RESET)
+		rc = 0; /* stop retry of recovery */
 	return rc;
 }
 
@@ -3350,7 +3442,7 @@ static int synaptics_clearpad_pm_suspend(struct device *dev)
 	spin_unlock_irqrestore(&this->slock, flags);
 
 #ifdef CONFIG_FB
-	if (!this->pm_suspended)
+	if (this->active & SYN_ACTIVE_POWER)
 #endif
 		rc = synaptics_clearpad_suspend(&this->pdev->dev);
 	if (rc)
@@ -3409,7 +3501,7 @@ static void synaptics_notify_resume(struct work_struct *work)
 	struct synaptics_clearpad *this = container_of(work,
 			struct synaptics_clearpad, notify_resume);
 
-	if (this->pm_suspended)
+	if (!(this->active & SYN_ACTIVE_POWER))
 		synaptics_clearpad_resume(&this->pdev->dev);
 }
 
@@ -3418,7 +3510,7 @@ static void synaptics_notify_suspend(struct work_struct *work)
 	struct synaptics_clearpad *this = container_of(work,
 			struct synaptics_clearpad, notify_suspend);
 
-	if (!this->pm_suspended)
+	if (this->active & SYN_ACTIVE_POWER)
 		synaptics_clearpad_suspend(&this->pdev->dev);
 }
 
@@ -3924,7 +4016,7 @@ static ssize_t synaptics_clearpad_debug_hwtest_write(struct file *file,
 		}
 	case 'P':
 		LOCK(this);
-		synaptics_clearpad_reset_power(this);
+		synaptics_clearpad_reset_power(this, NULL);
 		UNLOCK(this);
 		break;
 	default:

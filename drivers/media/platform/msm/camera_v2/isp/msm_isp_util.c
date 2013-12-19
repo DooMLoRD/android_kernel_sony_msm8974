@@ -28,6 +28,8 @@ static struct msm_isp_bandwidth_mgr isp_bandwidth_mgr;
 #define MSM_ISP_MIN_AB 300000000
 #define MSM_ISP_MIN_IB 450000000
 
+#define VFE40_8974V2_VERSION 0x1001001A
+
 static struct msm_bus_vectors msm_isp_init_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_VFE,
@@ -192,6 +194,32 @@ static inline void msm_isp_get_timestamp(struct msm_isp_timestamp *time_stamp)
 	do_gettimeofday(&(time_stamp->event_time));
 }
 
+static inline void msm_isp_get_vt_tstamp(struct vfe_device *vfe_dev,
+	struct msm_isp_timestamp *time_stamp)
+{
+	uint32_t avtimer_msw_1st = 0, avtimer_lsw = 0;
+	uint32_t avtimer_msw_2nd = 0;
+	uint8_t iter = 0;
+	if (!vfe_dev->p_avtimer_msw || !vfe_dev->p_avtimer_lsw) {
+		pr_err("%s: ioremap failed\n", __func__);
+		return;
+	}
+	do {
+		avtimer_msw_1st = msm_camera_io_r(vfe_dev->p_avtimer_msw);
+		avtimer_lsw = msm_camera_io_r(vfe_dev->p_avtimer_lsw);
+		avtimer_msw_2nd = msm_camera_io_r(vfe_dev->p_avtimer_msw);
+	} while ((avtimer_msw_1st != avtimer_msw_2nd)
+		&& (iter++ < AVTIMER_ITERATION_CTR));
+	/*Just return if the MSW TimeStamps don't converge after
+	a few iterations Application needs to handle the zero TS values*/
+	if (iter >= AVTIMER_ITERATION_CTR) {
+		pr_err("%s: AVTimer MSW TS did not converge !!!\n", __func__);
+		return;
+	}
+	time_stamp->vt_time.tv_sec = avtimer_msw_1st;
+	time_stamp->vt_time.tv_usec = avtimer_lsw;
+}
+
 int msm_isp_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
 	struct v4l2_event_subscription *sub)
 {
@@ -273,6 +301,9 @@ int msm_isp_cfg_pix(struct vfe_device *vfe_dev,
 		pr_err("%s: clock set rate failed\n", __func__);
 		return rc;
 	}
+
+	vfe_dev->axi_data.src_info[VFE_PIX_0].input_format =
+		input_cfg->d.pix_cfg.input_format;
 
 	vfe_dev->hw_info->vfe_ops.core_ops.cfg_camif(
 		vfe_dev, &input_cfg->d.pix_cfg);
@@ -367,7 +398,7 @@ long msm_isp_ioctl(struct v4l2_subdev *sd,
 		break;
 	case VIDIOC_MSM_ISP_SET_SRC_STATE:
 		mutex_lock(&vfe_dev->core_mutex);
-		msm_isp_set_src_state(vfe_dev, arg);
+		rc = msm_isp_set_src_state(vfe_dev, arg);
 		mutex_unlock(&vfe_dev->core_mutex);
 		break;
 	case VIDIOC_MSM_ISP_REQUEST_STATS_STREAM:
@@ -411,7 +442,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		if (resource_size(vfe_dev->vfe_mem) <
 			(reg_cfg_cmd->u.rw_info.reg_offset +
 			reg_cfg_cmd->u.rw_info.len)) {
-			pr_err("%s: Invalid length\n", __func__);
+			pr_err("%s: VFE_WRITE: Invalid length\n", __func__);
 			return -EINVAL;
 		}
 		msm_camera_io_memcpy(vfe_dev->vfe_base +
@@ -423,16 +454,37 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 	case VFE_WRITE_MB: {
 		uint32_t *data_ptr = cfg_data +
 			reg_cfg_cmd->u.rw_info.cmd_data_offset/4;
+
+		if ((UINT_MAX - sizeof(*data_ptr) <
+					reg_cfg_cmd->u.rw_info.reg_offset) ||
+			(resource_size(vfe_dev->vfe_mem) <
+			reg_cfg_cmd->u.rw_info.reg_offset +
+			sizeof(*data_ptr))) {
+			pr_err("%s: VFE_WRITE_MB: Invalid length\n", __func__);
+			return -EINVAL;
+		}
 		msm_camera_io_w_mb(*data_ptr, vfe_dev->vfe_base +
 			reg_cfg_cmd->u.rw_info.reg_offset);
 		break;
 	}
 	case VFE_CFG_MASK: {
 		uint32_t temp;
+		if (resource_size(vfe_dev->vfe_mem) <
+				reg_cfg_cmd->u.mask_info.reg_offset)
+			return -EINVAL;
 		temp = msm_camera_io_r(vfe_dev->vfe_base +
 			reg_cfg_cmd->u.mask_info.reg_offset);
+
 		temp &= ~reg_cfg_cmd->u.mask_info.mask;
 		temp |= reg_cfg_cmd->u.mask_info.val;
+		if ((UINT_MAX - sizeof(temp) <
+					reg_cfg_cmd->u.mask_info.reg_offset) ||
+			(resource_size(vfe_dev->vfe_mem) <
+			reg_cfg_cmd->u.mask_info.reg_offset +
+			sizeof(temp))) {
+			pr_err("%s: VFE_CFG_MASK: Invalid length\n", __func__);
+			return -EINVAL;
+		}
 		msm_camera_io_w(temp, vfe_dev->vfe_base +
 			reg_cfg_cmd->u.mask_info.reg_offset);
 		break;
@@ -444,8 +496,10 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		uint32_t *hi_tbl_ptr = NULL, *lo_tbl_ptr = NULL;
 		uint32_t hi_val, lo_val, lo_val1;
 		if (reg_cfg_cmd->cmd_type == VFE_WRITE_DMI_64BIT) {
-			if (reg_cfg_cmd->u.dmi_info.hi_tbl_offset +
-				reg_cfg_cmd->u.dmi_info.len > cmd_len) {
+			if ((UINT_MAX - reg_cfg_cmd->u.dmi_info.hi_tbl_offset <
+						reg_cfg_cmd->u.dmi_info.len) ||
+				(reg_cfg_cmd->u.dmi_info.hi_tbl_offset +
+				reg_cfg_cmd->u.dmi_info.len > cmd_len)) {
 				pr_err("Invalid Hi Table out of bounds\n");
 				return -EINVAL;
 			}
@@ -529,12 +583,21 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 		uint32_t *data_ptr = cfg_data +
 			reg_cfg_cmd->u.rw_info.cmd_data_offset/4;
 		for (i = 0; i < reg_cfg_cmd->u.rw_info.len/4; i++) {
+			if ((data_ptr < cfg_data) ||
+				(UINT_MAX / sizeof(*data_ptr) <
+				 (data_ptr - cfg_data)) ||
+				(sizeof(*data_ptr) * (data_ptr - cfg_data) >
+				 cmd_len))
+				return -EINVAL;
 			*data_ptr++ = msm_camera_io_r(vfe_dev->vfe_base +
 				reg_cfg_cmd->u.rw_info.reg_offset);
 			reg_cfg_cmd->u.rw_info.reg_offset += 4;
 		}
 		break;
 	}
+	case GET_SOC_HW_VER:
+		*cfg_data = vfe_dev->soc_hw_version;
+		break;
 	}
 	return 0;
 }
@@ -545,6 +608,11 @@ int msm_isp_proc_cmd(struct vfe_device *vfe_dev, void *arg)
 	struct msm_vfe_cfg_cmd2 *proc_cmd = arg;
 	struct msm_vfe_reg_cfg_cmd *reg_cfg_cmd;
 	uint32_t *cfg_data;
+
+	if (!proc_cmd->num_cfg) {
+		pr_err("%s: Passed num_cfg as 0\n", __func__);
+		return -EINVAL;
+	}
 
 	reg_cfg_cmd = kzalloc(sizeof(struct msm_vfe_reg_cfg_cmd)*
 		proc_cmd->num_cfg, GFP_KERNEL);
@@ -666,6 +734,42 @@ int msm_isp_cal_word_per_line(uint32_t output_format,
 	return val;
 }
 
+enum msm_isp_pack_fmt msm_isp_get_pack_format(uint32_t output_format)
+{
+	switch (output_format) {
+	case V4L2_PIX_FMT_SBGGR8:
+	case V4L2_PIX_FMT_SGBRG8:
+	case V4L2_PIX_FMT_SGRBG8:
+	case V4L2_PIX_FMT_SRGGB8:
+	case V4L2_PIX_FMT_SBGGR10:
+	case V4L2_PIX_FMT_SGBRG10:
+	case V4L2_PIX_FMT_SGRBG10:
+	case V4L2_PIX_FMT_SRGGB10:
+	case V4L2_PIX_FMT_SBGGR12:
+	case V4L2_PIX_FMT_SGBRG12:
+	case V4L2_PIX_FMT_SGRBG12:
+	case V4L2_PIX_FMT_SRGGB12:
+		return MIPI;
+	case V4L2_PIX_FMT_QBGGR8:
+	case V4L2_PIX_FMT_QGBRG8:
+	case V4L2_PIX_FMT_QGRBG8:
+	case V4L2_PIX_FMT_QRGGB8:
+	case V4L2_PIX_FMT_QBGGR10:
+	case V4L2_PIX_FMT_QGBRG10:
+	case V4L2_PIX_FMT_QGRBG10:
+	case V4L2_PIX_FMT_QRGGB10:
+	case V4L2_PIX_FMT_QBGGR12:
+	case V4L2_PIX_FMT_QGBRG12:
+	case V4L2_PIX_FMT_QGRBG12:
+	case V4L2_PIX_FMT_QRGGB12:
+		return QCOM;
+	default:
+		pr_err("%s: Invalid output format\n", __func__);
+		break;
+	}
+	return -EINVAL;
+}
+
 int msm_isp_get_bit_per_pixel(uint32_t output_format)
 {
 	switch (output_format) {
@@ -725,6 +829,8 @@ void msm_isp_update_error_frame_count(struct vfe_device *vfe_dev)
 void msm_isp_process_error_info(struct vfe_device *vfe_dev)
 {
 	int i;
+	uint8_t num_stats_type =
+		vfe_dev->hw_info->stats_hw_info->num_stats_type;
 	struct msm_vfe_error_info *error_info = &vfe_dev->error_info;
 	static DEFINE_RATELIMIT_STATE(rs,
 		DEFAULT_RATELIMIT_INTERVAL, DEFAULT_RATELIMIT_BURST);
@@ -748,7 +854,7 @@ void msm_isp_process_error_info(struct vfe_device *vfe_dev)
 				error_info->stream_framedrop_count[i] = 0;
 			}
 		}
-		for (i = 0; i < MSM_ISP_STATS_MAX; i++) {
+		for (i = 0; i < num_stats_type; i++) {
 			if (error_info->stats_framedrop_count[i] != 0 &&
 				__ratelimit(&rs_stats)) {
 				pr_err("%s: Stats stream[%d]: dropped %d frames\n",
@@ -806,6 +912,8 @@ irqreturn_t msm_isp_process_irq(int irq_num, void *data)
 	queue_cmd->vfeInterruptStatus0 = irq_status0;
 	queue_cmd->vfeInterruptStatus1 = irq_status1;
 	msm_isp_get_timestamp(&queue_cmd->ts);
+	if (vfe_dev->vt_enable)
+		msm_isp_get_vt_tstamp(vfe_dev, &queue_cmd->ts);
 	queue_cmd->cmd_used = 1;
 	vfe_dev->taskletq_idx =
 		(vfe_dev->taskletq_idx + 1) % MSM_VFE_TASKLETQ_SIZE;
@@ -857,11 +965,14 @@ void msm_isp_do_tasklet(unsigned long data)
 	}
 }
 
-void msm_isp_set_src_state(struct vfe_device *vfe_dev, void *arg)
+int msm_isp_set_src_state(struct vfe_device *vfe_dev, void *arg)
 {
 	struct msm_vfe_axi_src_state *src_state = arg;
+	if (src_state->input_src >= VFE_SRC_MAX)
+		return -EINVAL;
 	vfe_dev->axi_data.src_info[src_state->input_src].active =
 	src_state->src_active;
+	return 0;
 }
 
 int msm_isp_open_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
@@ -900,6 +1011,15 @@ int msm_isp_open_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 	vfe_dev->buf_mgr->ops->buf_mgr_init(vfe_dev->buf_mgr, "msm_isp", 28);
 
+	switch (vfe_dev->vfe_hw_version) {
+	case VFE40_8974V2_VERSION:
+		vfe_dev->soc_hw_version = msm_camera_io_r(vfe_dev->tcsr_base);
+		break;
+	default:
+		/* SOC HARDWARE VERSION NOT SUPPORTED */
+		vfe_dev->soc_hw_version = 0x00;
+	}
+
 	memset(&vfe_dev->axi_data, 0, sizeof(struct msm_vfe_axi_shared_data));
 	memset(&vfe_dev->stats_data, 0,
 		sizeof(struct msm_vfe_stats_shared_data));
@@ -907,6 +1027,9 @@ int msm_isp_open_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	vfe_dev->axi_data.hw_info = vfe_dev->hw_info->axi_hw_info;
 	vfe_dev->vfe_open_cnt++;
 	vfe_dev->taskletq_idx = 0;
+	vfe_dev->vt_enable = 0;
+	vfe_dev->p_avtimer_lsw = NULL;
+	vfe_dev->p_avtimer_msw = NULL;
 #if defined(CONFIG_SONY_CAM_V4L2)
 	vfe_dev->timeout = VFE_MAX_CFG_TIMEOUT;
 #endif
@@ -936,6 +1059,14 @@ int msm_isp_close_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	vfe_dev->buf_mgr->ops->buf_mgr_deinit(vfe_dev->buf_mgr);
 	vfe_dev->hw_info->vfe_ops.core_ops.release_hw(vfe_dev);
 	vfe_dev->vfe_open_cnt--;
+	if (vfe_dev->vt_enable) {
+		iounmap(vfe_dev->p_avtimer_lsw);
+		iounmap(vfe_dev->p_avtimer_msw);
+	#ifdef CONFIG_MSM_AVTIMER
+		avcs_core_disable_power_collapse(0);
+	#endif
+		vfe_dev->vt_enable = 0;
+	}
 	mutex_unlock(&vfe_dev->core_mutex);
 	mutex_unlock(&vfe_dev->realtime_mutex);
 	return 0;

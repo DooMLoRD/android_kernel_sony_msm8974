@@ -11,6 +11,7 @@
  *
  */
 
+#include <linux/dma-mapping.h>
 #include <linux/debugfs.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -39,6 +40,7 @@
 #include <mach/trace_msm_low_power.h>
 #include <mach/msm-krait-l2-accessors.h>
 #include <mach/msm_bus.h>
+#include <mach/mpm.h>
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
 #include <asm/pgtable.h>
@@ -478,6 +480,7 @@ static bool __ref msm_pm_spm_power_collapse(
 	void *entry;
 	bool collapsed = 0;
 	int ret;
+	bool save_cpu_regs = !cpu || from_idle;
 	unsigned int saved_gic_cpu_ctrl;
 
 	saved_gic_cpu_ctrl = readl_relaxed(MSM_QGIC_CPU_BASE + GIC_CPU_CTRL);
@@ -494,8 +497,8 @@ static bool __ref msm_pm_spm_power_collapse(
 			MSM_SPM_MODE_POWER_COLLAPSE, notify_rpm);
 	WARN_ON(ret);
 
-	entry = (!cpu || from_idle) ?
-		msm_pm_collapse_exit : msm_secondary_startup;
+	entry = save_cpu_regs ?  msm_pm_collapse_exit : msm_secondary_startup;
+
 	msm_pm_boot_config_before_pc(cpu, virt_to_phys(entry));
 
 	if (MSM_PM_DEBUG_RESET_VECTOR & msm_pm_debug_mask)
@@ -507,7 +510,7 @@ static bool __ref msm_pm_spm_power_collapse(
 #ifdef CONFIG_VFP
 	vfp_pm_suspend();
 #endif
-	collapsed = msm_pm_collapse();
+	collapsed = save_cpu_regs ? msm_pm_collapse() : msm_pm_pc_hotplug();
 
 	if (from_idle && msm_pm_pc_reset_timer)
 		clockevents_notify(CLOCK_EVT_NOTIFY_BROADCAST_EXIT, &cpu);
@@ -977,7 +980,7 @@ int msm_pm_wait_cpu_shutdown(unsigned int cpu)
 		if (acc_sts & msm_pm_slp_sts[cpu].mask)
 			return 0;
 		udelay(100);
-		WARN(++timeout == 10, "CPU%u didn't collape within 1ms\n",
+		WARN(++timeout == 20, "CPU%u didn't collape within 2ms\n",
 					cpu);
 	}
 
@@ -1144,9 +1147,22 @@ void msm_pm_set_sleep_ops(struct msm_pm_sleep_ops *ops)
 		pm_sleep_ops = *ops;
 }
 
+static int msm_suspend_prepare(void)
+{
+	msm_mpm_suspend_prepare();
+	return 0;
+}
+
+static void msm_suspend_wake(void)
+{
+	msm_mpm_suspend_wake();
+}
+
 static const struct platform_suspend_ops msm_pm_ops = {
 	.enter = msm_pm_enter,
 	.valid = suspend_valid_only_mem,
+	.prepare_late = msm_suspend_prepare,
+	.wake = msm_suspend_wake,
 };
 
 static int __devinit msm_pm_snoc_client_probe(struct platform_device *pdev)
@@ -1280,13 +1296,90 @@ static struct platform_driver msm_cpu_pm_snoc_client_driver = {
 	},
 };
 
+#ifdef CONFIG_ARM_LPAE
+static int msm_pm_idmap_add_pmd(pud_t *pud, unsigned long addr,
+				unsigned long end, unsigned long prot)
+{
+	pmd_t *pmd;
+	unsigned long next;
 
-static int __init msm_pm_setup_saved_state(void)
+	if (pud_none_or_clear_bad(pud) || (pud_val(*pud) & L_PGD_SWAPPER)) {
+		pmd = pmd_alloc_one(&init_mm, addr);
+		if (!pmd)
+			return -ENOMEM;
+
+		pud_populate(&init_mm, pud, pmd);
+		pmd += pmd_index(addr);
+	} else {
+		pmd = pmd_offset(pud, addr);
+	}
+
+	do {
+		next = pmd_addr_end(addr, end);
+		*pmd = __pmd((addr & PMD_MASK) | prot);
+		flush_pmd_entry(pmd);
+	} while (pmd++, addr = next, addr != end);
+
+	return 0;
+}
+#else   /* !CONFIG_ARM_LPAE */
+static int msm_pm_idmap_add_pmd(pud_t *pud, unsigned long addr,
+				unsigned long end, unsigned long prot)
+{
+	pmd_t *pmd = pmd_offset(pud, addr);
+
+	addr = (addr & PMD_MASK) | prot;
+	pmd[0] = __pmd(addr);
+	addr += SECTION_SIZE;
+	pmd[1] = __pmd(addr);
+	flush_pmd_entry(pmd);
+
+	return 0;
+}
+#endif  /* CONFIG_ARM_LPAE */
+
+static int msm_pm_idmap_add_pud(pgd_t *pgd, unsigned long addr,
+					unsigned long end,
+					unsigned long prot)
+{
+	pud_t *pud = pud_offset(pgd, addr);
+	unsigned long next;
+	int ret;
+
+	do {
+		next = pud_addr_end(addr, end);
+		ret = msm_pm_idmap_add_pmd(pud, addr, next, prot);
+		if (ret)
+			return ret;
+	} while (pud++, addr = next, addr != end);
+
+	return 0;
+}
+
+static int msm_pm_add_idmap(pgd_t *pgd, unsigned long addr,
+						unsigned long end,
+						unsigned long prot)
+{
+	unsigned long next;
+	int ret;
+
+	pgd += pgd_index(addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		ret = msm_pm_idmap_add_pud(pgd, addr, next, prot);
+		if (ret)
+			return ret;
+	} while (pgd++, addr = next, addr != end);
+
+	return 0;
+}
+
+static int msm_pm_setup_pagetable(void)
 {
 	pgd_t *pc_pgd;
-	pmd_t *pmd;
-	unsigned long pmdval;
 	unsigned long exit_phys;
+	unsigned long end;
+	int ret;
 
 	/* Page table for cores to come back up safely. */
 	pc_pgd = pgd_alloc(&init_mm);
@@ -1295,39 +1388,51 @@ static int __init msm_pm_setup_saved_state(void)
 
 	exit_phys = virt_to_phys(msm_pm_collapse_exit);
 
-	pmd = pmd_offset(pud_offset(pc_pgd + pgd_index(exit_phys),exit_phys),
-					exit_phys);
-	pmdval = (exit_phys & PGDIR_MASK) |
-		     PMD_TYPE_SECT | PMD_SECT_AP_WRITE;
-	pmd[0] = __pmd(pmdval);
-	pmd[1] = __pmd(pmdval + (1 << (PGDIR_SHIFT - 1)));
-
-	msm_saved_state_phys =
-		allocate_contiguous_ebi_nomap(CPU_SAVED_STATE_SIZE *
-					      num_possible_cpus(), 4);
-	if (!msm_saved_state_phys)
-		return -ENOMEM;
-	msm_saved_state = ioremap_nocache(msm_saved_state_phys,
-					  CPU_SAVED_STATE_SIZE *
-					  num_possible_cpus());
-	if (!msm_saved_state)
-		return -ENOMEM;
-
-	/* It is remotely possible that the code in msm_pm_collapse_exit()
-	 * which turns on the MMU with this mapping is in the
-	 * next even-numbered megabyte beyond the
-	 * start of msm_pm_collapse_exit().
-	 * Map this megabyte in as well.
+	/*
+	 * Make the (hopefully) reasonable assumption that the code size of
+	 * msm_pm_collapse_exit won't be more than a section in size
 	 */
-	pmd[2] = __pmd(pmdval + (2 << (PGDIR_SHIFT - 1)));
-	flush_pmd_entry(pmd);
+	end = exit_phys + SECTION_SIZE;
+
+	ret = msm_pm_add_idmap(pc_pgd, exit_phys, end,
+			PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AF);
+
+	if (ret)
+		return ret;
+
 	msm_pm_pc_pgd = virt_to_phys(pc_pgd);
 	clean_caches((unsigned long)&msm_pm_pc_pgd, sizeof(msm_pm_pc_pgd),
 		     virt_to_phys(&msm_pm_pc_pgd));
 
 	return 0;
 }
-core_initcall(msm_pm_setup_saved_state);
+
+static int __init msm_pm_setup_saved_state(void)
+{
+	int ret;
+	dma_addr_t temp_phys;
+
+	ret = msm_pm_setup_pagetable();
+	if (ret)
+		return ret;
+
+	msm_saved_state = dma_zalloc_coherent(NULL, CPU_SAVED_STATE_SIZE *
+						num_possible_cpus(),
+						&temp_phys, 0);
+
+	if (!msm_saved_state)
+		return -ENOMEM;
+
+	/*
+	 * Explicitly cast here since msm_saved_state_phys is defined
+	 * in assembly and we want to avoid any kind of truncation
+	 * or endian problems.
+	 */
+	msm_saved_state_phys = (unsigned long)temp_phys;
+
+	return 0;
+}
+arch_initcall(msm_pm_setup_saved_state);
 
 static void setup_broadcast_timer(void *arg)
 {
@@ -1613,14 +1718,6 @@ static int __init msm_pm_8x60_init(void)
 {
 	int rc;
 
-	rc = platform_driver_register(&msm_cpu_status_driver);
-
-	if (rc) {
-		pr_err("%s(): failed to register driver %s\n", __func__,
-				msm_cpu_status_driver.driver.name);
-		return rc;
-	}
-
 	rc = platform_driver_register(&msm_cpu_pm_snoc_client_driver);
 
 	if (rc) {
@@ -1632,3 +1729,8 @@ static int __init msm_pm_8x60_init(void)
 	return platform_driver_register(&msm_pm_8x60_driver);
 }
 device_initcall(msm_pm_8x60_init);
+
+void __init msm_pm_sleep_status_init(void)
+{
+	platform_driver_register(&msm_cpu_status_driver);
+}

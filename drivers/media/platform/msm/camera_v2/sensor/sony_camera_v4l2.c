@@ -168,7 +168,7 @@ static int sony_util_camera_info_init(struct platform_device *pdev, uint16_t id)
 	camera_info[id].subdev_code = val_u32[0];
 
 	of_node_power_sequence = of_find_node_by_name(of_node,
-					"sony,power_sequence");
+					"sony,camera_modules");
 	if (!of_node_power_sequence) {
 		LOGE("%s failed %d\n", __func__, __LINE__);
 		rc = -EFAULT;

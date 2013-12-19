@@ -32,6 +32,14 @@
 
 static struct of_device_id msm_iommu_v1_ctx_match_table[];
 
+#ifdef CONFIG_IOMMU_LPAE
+static const char *BFB_REG_NODE_NAME = "qcom,iommu-lpae-bfb-regs";
+static const char *BFB_DATA_NODE_NAME = "qcom,iommu-lpae-bfb-data";
+#else
+static const char *BFB_REG_NODE_NAME = "qcom,iommu-bfb-regs";
+static const char *BFB_DATA_NODE_NAME = "qcom,iommu-bfb-data";
+#endif
+
 static int msm_iommu_parse_bfb_settings(struct platform_device *pdev,
 				    struct msm_iommu_drvdata *drvdata)
 {
@@ -40,17 +48,17 @@ static int msm_iommu_parse_bfb_settings(struct platform_device *pdev,
 	int ret;
 
 	/*
-	 * It is not valid for a device to have the qcom,iommu-bfb-regs
-	 * property but not the qcom,iommu-bfb-data property, and vice versa.
+	 * It is not valid for a device to have the BFB_REG_NODE_NAME
+	 * property but not the BFB_DATA_NODE_NAME property, and vice versa.
 	 */
-	if (!of_get_property(pdev->dev.of_node, "qcom,iommu-bfb-regs", &nreg)) {
-		if (of_get_property(pdev->dev.of_node, "qcom,iommu-bfb-data",
+	if (!of_get_property(pdev->dev.of_node, BFB_REG_NODE_NAME, &nreg)) {
+		if (of_get_property(pdev->dev.of_node, BFB_DATA_NODE_NAME,
 				    &nval))
 			return -EINVAL;
 		return 0;
 	}
 
-	if (!of_get_property(pdev->dev.of_node, "qcom,iommu-bfb-data", &nval))
+	if (!of_get_property(pdev->dev.of_node, BFB_DATA_NODE_NAME, &nval))
 		return -EINVAL;
 
 	if (nreg >= sizeof(bfb_settings->regs))
@@ -68,14 +76,14 @@ static int msm_iommu_parse_bfb_settings(struct platform_device *pdev,
 		return -ENOMEM;
 
 	ret = of_property_read_u32_array(pdev->dev.of_node,
-					 "qcom,iommu-bfb-regs",
+					 BFB_REG_NODE_NAME,
 					 bfb_settings->regs,
 					 nreg / sizeof(*bfb_settings->regs));
 	if (ret)
 		return ret;
 
 	ret = of_property_read_u32_array(pdev->dev.of_node,
-					 "qcom,iommu-bfb-data",
+					 BFB_DATA_NODE_NAME,
 					 bfb_settings->data,
 					 nval / sizeof(*bfb_settings->data));
 	if (ret)
@@ -118,6 +126,32 @@ static void __put_bus_vote_client(struct msm_iommu_drvdata *drvdata)
 	drvdata->bus_client = 0;
 }
 
+#ifdef CONFIG_IOMMU_NON_SECURE
+static inline void get_secure_id(struct device_node *node,
+			  struct msm_iommu_drvdata *drvdata)
+{
+}
+
+static inline void get_secure_ctx(struct device_node *node,
+				  struct msm_iommu_ctx_drvdata *ctx_drvdata)
+{
+	ctx_drvdata->secure_context = 0;
+}
+#else
+static void get_secure_id(struct device_node *node,
+			  struct msm_iommu_drvdata *drvdata)
+{
+	of_property_read_u32(node, "qcom,iommu-secure-id", &drvdata->sec_id);
+}
+
+static void get_secure_ctx(struct device_node *node,
+			   struct msm_iommu_ctx_drvdata *ctx_drvdata)
+{
+	ctx_drvdata->secure_context =
+			of_property_read_bool(node, "qcom,secure-context");
+}
+#endif
+
 static int msm_iommu_parse_dt(struct platform_device *pdev,
 				struct msm_iommu_drvdata *drvdata)
 {
@@ -154,8 +188,7 @@ static int msm_iommu_parse_dt(struct platform_device *pdev,
 		goto fail;
 
 	drvdata->sec_id = -1;
-	of_property_read_u32(pdev->dev.of_node, "qcom,iommu-secure-id",
-				&drvdata->sec_id);
+	get_secure_id(pdev->dev.of_node, drvdata);
 
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "clk_base");
 	if (r) {
@@ -361,8 +394,7 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 	int irq = 0, ret = 0;
 	u32 nsid;
 
-	ctx_drvdata->secure_context = of_property_read_bool(pdev->dev.of_node,
-							"qcom,secure-context");
+	get_secure_ctx(pdev->dev.of_node, ctx_drvdata);
 
 	if (ctx_drvdata->secure_context) {
 		irq = platform_get_irq(pdev, 1);
