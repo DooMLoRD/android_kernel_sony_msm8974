@@ -1196,7 +1196,7 @@ static struct pvs_table * __init select_freq_plan(
 
 #ifdef CONFIG_CPU_OC
 	dev_info(drv.dev, "DooMLoRD: Forcing 8974v2 2.3GHz\n");
-	return &params->pvs_tables[1][drv.pvs_bin];
+	return &params->pvs_tables[drv.pvs_rev][1][drv.pvs_bin];
 #else
 	return &params->pvs_tables[drv.pvs_rev][drv.speed_bin][drv.pvs_bin];
 #endif
