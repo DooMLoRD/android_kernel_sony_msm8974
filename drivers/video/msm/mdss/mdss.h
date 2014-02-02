@@ -28,6 +28,8 @@
 #define MDSS_REG_WRITE(addr, val) writel_relaxed(val, mdss_res->mdp_base + addr)
 #define MDSS_REG_READ(addr) readl_relaxed(mdss_res->mdp_base + addr)
 
+#define MAX_DRV_SUP_MMB_BLKS	44
+
 enum mdss_mdp_clk_type {
 	MDSS_CLK_AHB,
 	MDSS_CLK_AXI,
@@ -69,6 +71,8 @@ struct mdss_data_type {
 	struct clk *mdp_clk[MDSS_MAX_CLK];
 	struct regulator *fs;
 	struct regulator *vdd_cx;
+	bool batfet_required;
+	struct regulator *batfet;
 	u32 max_mdp_clk_rate;
 
 	struct platform_device *pdev;
@@ -111,6 +115,9 @@ struct mdss_data_type {
 	u32 nvig_pipes;
 	u32 nrgb_pipes;
 	u32 ndma_pipes;
+
+	DECLARE_BITMAP(mmb_alloc_map, MAX_DRV_SUP_MMB_BLKS);
+
 	struct mdss_mdp_mixer *mixer_intf;
 	struct mdss_mdp_mixer *mixer_wb;
 	u32 nmixers_intf;
@@ -158,6 +165,7 @@ int mdss_register_irq(struct mdss_hw *hw);
 void mdss_enable_irq(struct mdss_hw *hw);
 void mdss_disable_irq(struct mdss_hw *hw);
 void mdss_disable_irq_nosync(struct mdss_hw *hw);
+void mdss_bus_bandwidth_ctrl(int enable);
 
 static inline struct ion_client *mdss_get_ionclient(void)
 {

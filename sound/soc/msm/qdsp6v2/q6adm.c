@@ -760,6 +760,12 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 					__func__, payload[0]);
 			rtac_make_adm_callback(payload,
 				data->payload_size);
+
+			if (payload[1] == ADM_MODULE_ID_XLOUD ||
+				payload[1] == ADM_MODULE_ID_CP)
+				memcpy(adm_get_param_buffer,
+						&payload[4], payload[3]);
+
 			adm_get_parameters[0] = payload[3];
 			pr_debug("GET_PP PARAM:received parameter length: %x\n",
 					adm_get_parameters[0]);

@@ -1430,9 +1430,42 @@ static int msm_routing_put_hw_id(struct snd_kcontrol *kcontrol,
 }
 
 /* SOMC effect control start */
+static int msm_routing_get_xloud_control_(
+				struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol) {
+	struct xloud_params user_param;
+	void *param;
+	int ret = 0;
+	int port_id =
+	((struct soc_multi_mixer_control *)kcontrol->private_value)->reg;
+
+	param = &user_param;
+
+	ret = sony_copp_effect_get(port_id, param,
+			sizeof(struct xloud_params),
+			ADM_MODULE_ID_XLOUD);
+	if (ret) {
+		pr_err("%s: Getting xLOUD params failed %d\n",
+			__func__, ret);
+		return ret;
+	}
+	ucontrol->value.integer.value[0] = user_param.enable;
+
+	pr_info("%s: enabled %d\n",
+		__func__, user_param.enable);
+
+	return ret;
+}
+
 static int msm_routing_get_xloud_control(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol) {
-	return 0;
+	int ret;
+
+	pr_info("xLOUD get control\n");
+	mutex_lock(&routing_lock);
+	ret = msm_routing_get_xloud_control_(kcontrol, ucontrol);
+	mutex_unlock(&routing_lock);
+	return ret;
 }
 
 static int msm_routing_set_xloud_control_(struct snd_kcontrol *kcontrol,
@@ -1476,9 +1509,42 @@ static int msm_routing_set_xloud_control(struct snd_kcontrol *kcontrol,
 	return ret;
 }
 
+static int msm_routing_get_clearphase_control_(
+				struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol) {
+	struct clearphase_params user_param;
+	void *param;
+	int ret = 0;
+	int port_id =
+	((struct soc_multi_mixer_control *)kcontrol->private_value)->reg;
+
+	param = &user_param;
+
+	ret = sony_copp_effect_get(port_id, param,
+			sizeof(struct clearphase_params),
+			ADM_MODULE_ID_CP);
+	if (ret) {
+		pr_err("%s: Getting ClearPhase params failed %d\n",
+			__func__, ret);
+		return ret;
+	}
+	ucontrol->value.integer.value[0] = user_param.enable;
+
+	pr_info("%s: enabled %d\n",
+		__func__, user_param.enable);
+
+	return ret;
+}
+
 static int msm_routing_get_clearphase_control(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol) {
-	return 0;
+	int ret;
+
+	pr_info("ClearPhasae get control\n");
+	mutex_lock(&routing_lock);
+	ret = msm_routing_get_clearphase_control_(kcontrol, ucontrol);
+	mutex_unlock(&routing_lock);
+	return ret;
 }
 
 static int msm_routing_set_clearphase_control_(struct snd_kcontrol *kcontrol,
@@ -1529,10 +1595,59 @@ static int msm_routing_set_clearphase_control(struct snd_kcontrol *kcontrol,
 #define BAND_MAX_LEVEL		10
 #define VPT_MODE_MAX		4
 
+static int msm_routing_get_clearaudio_vpt_control_(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int idx =
+	((struct soc_multi_mixer_control *)kcontrol->private_value)->reg;
+	struct audio_client *ac;
+	void *param;
+	struct clearaudio_vpt_params user_param;
+	int ret = 0;
+	int i;
+
+	ac = q6asm_get_audio_client(fe_dai_map[idx][SESSION_TYPE_RX]);
+	param = &user_param;
+
+	ret = sony_popp_effect_get(ac, param,
+			sizeof(struct clearaudio_vpt_params),
+			ASM_MODULE_ID_CA_VPT);
+	if (ret) {
+		pr_err("%s: Getting ClearAudioVPT params failed %d\n",
+			__func__, ret);
+		return ret;
+	}
+
+	ucontrol->value.integer.value[0] = user_param.enable;
+	ucontrol->value.integer.value[1] = user_param.chsep_coef;
+	for (i = 0; i < BAND_NUM ; i++)
+		ucontrol->value.integer.value[i + 2] = user_param.eq_coef[i];
+	ucontrol->value.integer.value[8] = user_param.vpt_mode;
+
+	pr_info("%s: get ClearAudioVPT" \
+			"params(%d,%d,%d,%d,%d,%d,%d,%d,%d)" \
+			"to q6asm\n",
+		__func__, user_param.enable, user_param.chsep_coef,
+		user_param.eq_coef[0], user_param.eq_coef[1],
+		user_param.eq_coef[2], user_param.eq_coef[3],
+		user_param.eq_coef[4], user_param.eq_coef[5],
+		user_param.vpt_mode);
+
+	return ret;
+}
+
 static int msm_routing_get_clearaudio_vpt_control(
 			struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol) {
-	return 0;
+	int ret;
+
+	pr_debug("ClearAudio get control\n");
+	mutex_lock(&routing_lock);
+	ret = msm_routing_get_clearaudio_vpt_control_(kcontrol, ucontrol);
+	mutex_unlock(&routing_lock);
+
+	return ret;
 }
 
 static int msm_routing_set_clearaudio_vpt_control_(
@@ -1678,9 +1793,46 @@ static int msm_routing_set_clearaudio_vpt_control(
 	return ret;
 }
 
+static int msm_routing_get_vpt51_control_(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int idx =
+	((struct soc_multi_mixer_control *)kcontrol->private_value)->reg;
+	struct audio_client *ac;
+	void *param;
+	struct vpt_params user_param;
+	int ret = 0;
+
+	ac = q6asm_get_audio_client(fe_dai_map[idx][SESSION_TYPE_RX]);
+	param = &user_param;
+
+	ret = sony_popp_effect_get(ac, param,
+			sizeof(struct vpt_params),
+			ASM_MODULE_ID_VPT51);
+	if (ret) {
+		pr_err("%s: Getting VPT5.1 params failed %d\n",
+			__func__, ret);
+		return ret;
+	}
+	ucontrol->value.integer.value[0] = user_param.enable;
+	ucontrol->value.integer.value[1] = user_param.mode;
+
+	pr_info("%s: get VPT5.1 params(%d, %d)\n",
+		__func__, user_param.enable, user_param.mode);
+
+	return ret;
+}
+
 static int msm_routing_get_vpt51_control(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol) {
-	return 0;
+	int ret;
+
+	pr_debug("VPT5.1 get control\n");
+	mutex_lock(&routing_lock);
+	ret = msm_routing_get_vpt51_control_(kcontrol, ucontrol);
+	mutex_unlock(&routing_lock);
+	return ret;
 }
 
 static int msm_routing_set_vpt51_control_(struct snd_kcontrol *kcontrol,
@@ -1734,10 +1886,47 @@ static int msm_routing_set_vpt51_control(struct snd_kcontrol *kcontrol,
 	return ret;
 }
 
+static int msm_routing_get_dynamicnormalizer_control_(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int idx =
+	((struct soc_multi_mixer_control *)kcontrol->private_value)->reg;
+	struct audio_client *ac;
+	void *param;
+	struct dynamicnormalizer_params user_param;
+	int ret = 0;
+
+	ac = q6asm_get_audio_client(fe_dai_map[idx][SESSION_TYPE_RX]);
+	param = &user_param;
+
+	ret = sony_popp_effect_get(ac, param,
+			sizeof(struct dynamicnormalizer_params),
+			ASM_MODULE_ID_DN);
+	if (ret) {
+		pr_err("%s: Getting DN params failed %d\n",
+			__func__, ret);
+		return ret;
+	}
+	ucontrol->value.integer.value[0] = user_param.enable;
+
+	pr_info("%s: get DynamicNormalizer params(%d)\n",
+		__func__, user_param.enable);
+
+	return ret;
+}
+
 static int msm_routing_get_dynamicnormalizer_control(
 			struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol) {
-	return 0;
+	int ret;
+
+	pr_debug("DynamicNormalizer get control\n");
+	mutex_lock(&routing_lock);
+	ret = msm_routing_get_dynamicnormalizer_control_(kcontrol, ucontrol);
+	mutex_unlock(&routing_lock);
+
+	return ret;
 }
 
 static int msm_routing_set_dynamicnormalizer_control_(

@@ -52,9 +52,9 @@ int mmc_cd_slot_status_changed(struct mmc_host *host)
 
 	status = mmc_cd_get_status(host);
 	if (unlikely(status < 0))
-		goto out;
+		return 1;
 
-	if ((status == 0) || cd->irq_detect) {
+	if ((cd->irq_detect && status) || (!status && host->card)) {
 		cd->irq_detect = 0;
 		return 1;
 	}

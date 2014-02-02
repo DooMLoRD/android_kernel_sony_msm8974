@@ -155,10 +155,7 @@ obj-$(CONFIG_MSM_DALRPC) += dal.o
 obj-$(CONFIG_MSM_DALRPC_TEST) += dal_remotetest.o
 obj-$(CONFIG_ARCH_MSM7X30) += dal_axi.o
 obj-$(CONFIG_ARCH_MSM7X27A) += dal_axi.o
-obj-$(CONFIG_MSM_ADSP) += qdsp5/
-obj-$(CONFIG_MSM7KV2_AUDIO) += qdsp5v2/
 obj-$(CONFIG_MSM_RPCSERVER_HANDSET) += rpc_server_handset.o
-obj-$(CONFIG_MSM_QDSP6) += qdsp6/
 obj-$(CONFIG_MSM8X60_AUDIO) += qdsp6v2/
 obj-$(CONFIG_MSM_AUDIO_QDSP6) += qdsp6v2/
 obj-$(CONFIG_MSM_AUDIO_QDSP6V2) += qdsp6v2/
@@ -322,8 +319,18 @@ obj-$(CONFIG_MACH_SAPPHIRE) += board-sapphire-rfkill.o msm_vibrator.o
 
 ifdef CONFIG_MACH_SONY_TOGARI_ROW
 	obj-$(CONFIG_MACH_SONY_TOGARI_ROW) += board-sony_togari_row-gpiomux.o bms-batterydata-burton.o
+else ifdef CONFIG_MACH_SONY_TOGARI_WINDY
+	obj-$(CONFIG_MACH_SONY_TOGARI_WINDY) += board-sony_togari_windy-gpiomux.o bms-batterydata-burton.o
+else ifdef CONFIG_MACH_SONY_TOGARI_BRAZIL
+	obj-$(CONFIG_MACH_SONY_TOGARI_BRAZIL) += board-sony_togari_brazil-gpiomux.o bms-batterydata-burton.o
 else ifdef CONFIG_MACH_SONY_HONAMI_ROW
 	obj-$(CONFIG_MACH_SONY_HONAMI_ROW) += board-sony_honami_row-gpiomux.o bms-batterydata-salomon.o
+else ifdef CONFIG_MACH_SONY_HONAMI_TMOUS
+	obj-$(CONFIG_MACH_SONY_HONAMI_TMOUS) += board-sony_honami_tmous-gpiomux.o bms-batterydata-salomon.o
+else ifdef CONFIG_MACH_SONY_HONAMI_BRAZIL
+	obj-$(CONFIG_MACH_SONY_HONAMI_BRAZIL) += board-sony_honami_brazil-gpiomux.o bms-batterydata-salomon.o
+else ifdef CONFIG_MACH_SONY_AMAMI_ROW
+	obj-$(CONFIG_MACH_SONY_AMAMI_ROW) += board-sony_amami_row-gpiomux.o bms-batterydata-ray.o
 else
 	obj-$(CONFIG_ARCH_MSM8974) += board-8974-gpiomux.o
 endif

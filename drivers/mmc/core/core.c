@@ -749,7 +749,11 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 				 */
 				mmc_update_clk_scaling(host);
 				err = mmc_stop_request(host);
-				if (err && !context_info->is_done_rcv) {
+				if (err == MMC_BLK_NO_REQ_TO_STOP) {
+					pending_is_urgent = true;
+					/* wait for done/new/urgent event */
+					continue;
+				} else if (err && !context_info->is_done_rcv) {
 					err = MMC_BLK_ABORT;
 					break;
 				}
@@ -3609,6 +3613,9 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		notify_block, struct mmc_host, pm_notify);
 	unsigned long flags;
 	int err = 0;
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	int status = 0;
+#endif
 
 	switch (mode) {
 	case PM_HIBERNATION_PREPARE:
@@ -3666,15 +3673,15 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 0;
-#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
-		if (mmc_bus_manual_resume(host)) {
-			spin_unlock_irqrestore(&host->lock, flags);
-			if (!mmc_cd_slot_status_changed(host))
-				break;
-			spin_lock_irqsave(&host->lock, flags);
-		}
-#endif
 		spin_unlock_irqrestore(&host->lock, flags);
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+		status = mmc_cd_slot_status_changed(host);
+		if (!host->card && !status)
+			break;
+
+		if (mmc_bus_manual_resume(host) && !status)
+				break;
+#endif
 		mmc_detect_change(host, 0);
 		break;
 

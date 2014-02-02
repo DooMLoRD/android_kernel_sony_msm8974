@@ -175,8 +175,9 @@
 		qcom,cdc-vdd-mic-bias-voltage = <3075000 3075000>;
 		qcom,cdc-vdd-mic-bias-current = <25000>;
 
+		qcom,cdc-micbias-ldoh-v = <0x3>;
 		qcom,cdc-micbias-cfilt-sel = <0x0>;
-		qcom,cdc-micbias-cfilt-mv = <1800000>;
+		qcom,cdc-micbias-cfilt-mv = <2700>;
 		qcom,cdc-mclk-clk-rate = <12288000>;
 
 		qcom,cdc-static-supplies = "cdc-vdda-h",
@@ -286,7 +287,7 @@
 	qcom,pad-drv-on = <0x4 0x4 0x4>; /* 10mA, 10mA, 10mA */
 	qcom,pad-drv-off = <0x0 0x0 0x0>; /* 2mA, 2mA, 2mA */
 
-	qcom,clk-rates = <400000 25000000 50000000 100000000 200000000>;
+	qcom,clk-rates = <400000 25000000 50000000>;
 
 	#address-cells = <0>;
 	interrupt-parent = <&sdhc_2>;

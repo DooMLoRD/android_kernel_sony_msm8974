@@ -703,9 +703,13 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 		rc = -EINVAL;
 	}
 #else
-	rc = wait_event_interruptible_timeout(cmd_ack->wait,
-		!list_empty_careful(&cmd_ack->command_q.list),
-		msecs_to_jiffies(timeout));
+	do {
+		rc = wait_event_interruptible_timeout(cmd_ack->wait,
+			!list_empty_careful(&cmd_ack->command_q.list),
+			msecs_to_jiffies(timeout));
+		if (rc != -ERESTARTSYS)
+			break;
+	} while (1);
 #endif
 	if (list_empty_careful(&cmd_ack->command_q.list)) {
 		if (!rc) {

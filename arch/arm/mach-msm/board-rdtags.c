@@ -12,6 +12,7 @@
 #include <linux/rdtags.h>
 #include <linux/string.h>
 #include <linux/platform_device.h>
+#include <asm/setup.h>
 #include "board-rdtags.h"
 #ifdef CONFIG_KALLSYMS_ALL
 #include <linux/kallsyms.h>
@@ -67,6 +68,27 @@ static const struct rdtags_build_tags rdtags_build_info = {
        [64]    int     ntp_error_shift
        [68]    struct timespec xtime
  */
+
+/*Add rdtag for mem descriptors*/
+static int rdtags_get_meminfo(void)
+{
+	int ret = 0;
+	char tmp_data[11];
+
+	memset(tmp_data, 0, sizeof(tmp_data));
+	snprintf(tmp_data, sizeof(tmp_data), "0x%08x",
+		(unsigned int)virt_to_phys(&meminfo));
+
+	ret = rdtags_add_tag_string("meminfo", tmp_data);
+	if (ret) {
+		pr_err("Could not create RDTAG meminfo: %d",
+						ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 #ifdef CONFIG_KALLSYMS_ALL
 #define XTIME_OFFSET 68
 static int rdtags_get_xtime_info(void)
@@ -139,6 +161,9 @@ static int board_rdtags_init(void)
 	rdtags_get_xtime_info();
 	nbr_tags += NR_LOGBUF_TAGS + 1;
 #endif
+	if (!rdtags_get_meminfo())
+		nbr_tags++;
+
 	return nbr_tags;
 }
 

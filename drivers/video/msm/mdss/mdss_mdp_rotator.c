@@ -276,17 +276,15 @@ static void mdss_mdp_rotator_commit_wq_handler(struct work_struct *work)
 
 	mutex_lock(&rotator_lock);
 	ret = mdss_mdp_rotator_queue_helper(rot);
-
-	if (ret) {
+	if (ret)
 		pr_err("rotator queue failed\n");
-		mutex_unlock(&rotator_lock);
-		return;
-	}
 
-	if (rot->rot_sync_pt_data)
+	if (rot->rot_sync_pt_data) {
+		atomic_inc(&rot->rot_sync_pt_data->commit_cnt);
 		mdss_fb_signal_timeline(rot->rot_sync_pt_data);
-	else
+	} else {
 		pr_err("rot_sync_pt_data is NULL\n");
+	}
 
 	mutex_unlock(&rotator_lock);
 }
@@ -440,6 +438,7 @@ int mdss_mdp_rotator_setup(struct msm_fb_data_type *mfd,
 		rot->flags |= MDP_DEINTERLACE;
 		rot->src_rect.h /= 2;
 		rot->src_rect.y = DIV_ROUND_UP(rot->src_rect.y, 2);
+		rot->src_rect.y &= ~1;
 	}
 
 	rot->dst = rot->src_rect;

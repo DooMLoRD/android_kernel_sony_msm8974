@@ -611,7 +611,7 @@
 		#size-cells = <0>;
 		reg-names = "spi_physical", "spi_bam_physical";
 		reg = <0xf9966000 0x1000>,
-		      <0xf9944000 0x15000>;
+		      <0xf9944000 0x19000>;
 		interrupt-names = "spi_irq", "spi_bam_irq";
 		interrupts = <0 104 0>, <0 239 0>;
 		spi-max-frequency = <19200000>;
@@ -818,7 +818,7 @@
 		interrupts = <0 105 0>;
 		interrupt-names = "qup_err_intr";
 		qcom,i2c-bus-freq = <100000>;
-		qcom,i2c-src-freq = <50000000>;
+		qcom,i2c-src-freq = <19200000>;
 		qcom,master-id = <84>;
 	};
 
@@ -861,7 +861,7 @@
 		#size-cells = <0>;
 		reg-names = "spi_physical", "spi_bam_physical";
 		reg = <0xf9923000 0x1000>,
-		      <0xf9904000 0xf000>;
+		      <0xf9904000 0x19000>;
 		interrupt-names = "spi_irq", "spi_bam_irq";
 		interrupts = <0 95 0>, <0 238 0>;
 		spi-max-frequency = <19200000>;
@@ -928,7 +928,7 @@
 		qcom,misc-ref = <&pm8941_misc>;
 		dwc_usb3-adc_tm = <&pm8941_adc_tm>;
 		qcom,dwc-usb3-msm-tx-fifo-size = <29696>;
-		qcom,dwc-usb3-msm-qdss-tx-fifo-size = <16384>;
+		qcom,dwc-usb3-msm-qdss-tx-fifo-size = <8192>;
 
 		qcom,msm-bus,name = "usb3";
 		qcom,msm-bus,num-cases = <2>;
@@ -1268,8 +1268,12 @@
 	qcom,wcnss-wlan@fb000000 {
 		compatible = "qcom,wcnss_wlan";
 		reg = <0xfb000000 0x280000>,
-			<0xf9011008 0x04>;
-		reg-names = "wcnss_mmio", "wcnss_fiq";
+			<0xf9011008 0x04>,
+			<0xfc4010c8 0x04>,
+			<0xfc401880 0x04>,
+			<0xfc401884 0x04>,
+			<0xfc401888 0x04>;
+		reg-names = "wcnss_mmio", "wcnss_fiq", "wcnss_div4cbcr", "wcnss_dbgclk", "wcnss_measctrl", "wcnss_measstatus";
 		interrupts = <0 145 0 0 146 0>;
 		interrupt-names = "wcnss_wlantx_irq", "wcnss_wlanrx_irq";
 
@@ -1498,7 +1502,7 @@
 			qcom,src-bam-pipe-index = <0>;
 			qcom,dst-bam-physical-address = <0xf9304000>;
 			qcom,dst-bam-pipe-index = <2>;
-			qcom,data-fifo-offset = <0xf2000>;
+			qcom,data-fifo-offset = <0xf0000>;
 			qcom,data-fifo-size = <0x1800>;
 			qcom,descriptor-fifo-offset = <0xf4000>;
 			qcom,descriptor-fifo-size = <0x1400>;

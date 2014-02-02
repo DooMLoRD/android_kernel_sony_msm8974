@@ -240,7 +240,6 @@ struct qpnp_bms_chip {
 	int				last_soc;
 	int				last_soc_est;
 	int				last_soc_unbound;
-	bool				was_charging_at_sleep;
 	int				charge_start_tm_sec;
 	int				catch_up_time_sec;
 	struct single_row_lut		*adjusted_fcc_temp_lut;
@@ -1712,8 +1711,7 @@ static int report_cc_based_soc(struct qpnp_bms_chip *chip)
 	calculate_delta_time(&last_change_sec, &time_since_last_change_sec);
 
 	charging = is_battery_charging(chip);
-	charging_since_last_report = charging || (chip->last_soc_unbound
-			&& chip->was_charging_at_sleep);
+	charging_since_last_report = charging;
 	/*
 	 * account for charge time - limit it to SOC_CATCHUP_SEC to
 	 * avoid overflows when charging continues for extended periods
@@ -4508,7 +4506,6 @@ static int bms_suspend(struct device *dev)
 	struct qpnp_bms_chip *chip = dev_get_drvdata(dev);
 
 	cancel_delayed_work_sync(&chip->calculate_soc_delayed_work);
-	chip->was_charging_at_sleep = is_battery_charging(chip);
 	return 0;
 }
 
