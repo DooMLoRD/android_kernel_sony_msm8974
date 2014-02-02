@@ -92,7 +92,7 @@
 
 #define WCD9XXX_HPHL_STATUS_READY_WAIT_US 1000
 #define WCD9XXX_MUX_SWITCH_READY_WAIT_MS 50
-#define WCD9XXX_MEAS_DELTA_MAX_MV 50
+#define WCD9XXX_MEAS_DELTA_MAX_MV 70
 #define WCD9XXX_MEAS_INVALD_RANGE_LOW_MV 20
 #define WCD9XXX_MEAS_INVALD_RANGE_HIGH_MV 80
 #define WCD9XXX_GM_SWAP_THRES_MIN_MV 150
@@ -1257,8 +1257,11 @@ wcd9xxx_find_plug_type(struct wcd9xxx_mbhc *mbhc,
 		if (!d->swap_gnd && !d->hwvalue &&
 		    (abs(minv - d->_vdces) > WCD9XXX_MEAS_DELTA_MAX_MV ||
 		     abs(maxv - d->_vdces) > WCD9XXX_MEAS_DELTA_MAX_MV)) {
-			pr_debug("%s: Invalid, delta %dmv, %dmv and %dmv\n",
-				 __func__, d->_vdces, minv, maxv);
+			pr_err("%s: Invalid, delta %dmv, %dmv and %dmv," \
+				" %ld/%ld\n",
+				 __func__, d->_vdces, minv, maxv,
+				 abs(minv - d->_vdces),
+				 abs(maxv - d->_vdces));
 			type = PLUG_TYPE_INVALID;
 			goto exit;
 		} else if (d->swap_gnd) {

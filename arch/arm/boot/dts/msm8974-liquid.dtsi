@@ -1,4 +1,5 @@
 /* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,6 +27,8 @@
 
         qcom,mdss_mdp@fd900000 {
                 qcom,mdss-pref-prim-intf = "edp";
+		qcom,panel-lpg-channel = <7>; /* LPG Channel 8 */
+		qcom,panel-pwm-period = <53>;
         };
 
 	i2c@f9967000 {
@@ -214,7 +217,7 @@
 					/* Object 6, Instance = 0 */
 					00 00 00 00 00 00
 					/* Object 38, Instance = 0 */
-					19 03 00 1E 05 0D 00 00 00 00
+					19 04 00 07 08 0D 00 00 00 00
 					00 00 00 00 00 00 00 00 00 00
 					00 00 00 00 00 00 00 00 00 00
 					00 00 00 00 00 00 00 00 00 00
@@ -240,7 +243,7 @@
 					00 00 00 00 00 00 00 00 00
 					/* Object 25, Instance = 0 */
 					00 00 54 6F F0 55 00 00 00 00
-					00 00 00 00 00
+					00 00 00 00 0C
 					/* Object 27, Instance = 0 */
 					00 00 00 00 00 00 00
 					/* Object 40, Instance = 0 */
@@ -363,7 +366,7 @@
 		qcom,ext-spk-amp-supply = <&ext_5v>;
 		qcom,ext-spk-amp-gpio = <&pm8841_mpps 1 0>;
 		qcom,dock-plug-det-irq = <&pm8841_mpps 2 0>;
-		/* qcom,ext-ult-spk-amp-gpio = <&pm8941_gpios 6 0>; */
+		qcom,ext-ult-spk-amp-gpio = <&pm8941_gpios 6 0>;
 		qcom,hdmi-audio-rx;
 
 		qcom,prim-auxpcm-gpio-clk  = <&msmgpio 74 0>;
@@ -755,10 +758,12 @@
 
 &slim_msm {
 	taiko_codec {
+/*
 		qcom,cdc-micbias1-ext-cap;
 		qcom,cdc-micbias2-ext-cap;
 		qcom,cdc-micbias3-ext-cap;
 		qcom,cdc-micbias4-ext-cap;
+*/
 
 		/*
 		 * Liquid has external spkrdrv supply. Give a dummy supply to

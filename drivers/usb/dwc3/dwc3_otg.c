@@ -2,6 +2,7 @@
  * dwc3_otg.c - DesignWare USB3 DRD Controller OTG
  *
  * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2012 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,6 +12,9 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ *
+ * NOTE: This file has been modified by Sony Mobile Communications AB.
+ * Modifications are licensed under the License.
  */
 
 #include <linux/module.h>
@@ -497,6 +501,18 @@ static void dwc3_ext_event_notify(struct usb_otg *otg,
 
 		queue_delayed_work(system_nrt_wq, &dotg->sm_work, 0);
 	}
+}
+
+static int  dwc3_ext_set_ocp_mode(struct usb_otg *otg, enum usb_ocp_modes mode)
+{
+	struct dwc3_otg *dotg = container_of(otg, struct dwc3_otg, otg);
+	struct usb_phy *phy = dotg->otg.phy;
+	int ret;
+
+	dev_dbg(phy->dev, "set ocp mode(%d)\n", mode);
+	ret = regulator_set_ocp_mode(dotg->vbus_otg, mode);
+
+	return ret;
 }
 
 /**
@@ -1035,6 +1051,7 @@ int dwc3_otg_init(struct dwc3 *dwc)
 
 	dotg->otg.set_peripheral = dwc3_otg_set_peripheral;
 	dotg->otg.set_host = dwc3_otg_set_host;
+	dotg->otg.set_ocp_mode = dwc3_ext_set_ocp_mode;
 
 	/* This reference is used by dwc3 modules for checking otg existance */
 	dwc->dotg = dotg;

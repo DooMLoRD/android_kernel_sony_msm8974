@@ -100,6 +100,14 @@ static DEFINE_SPINLOCK(reg_spinlock);
 
 #define PRONTO_PMU_COM_CPU_CBCR_OFFSET     0x0030
 #define PRONTO_PMU_COM_AHB_CBCR_OFFSET     0x0034
+
+#define PRONTO_PMU_WLAN_AHB_CBCR_OFFSET    0x0074
+#define PRONTO_PMU_WLAN_AHB_CBCR_CLK_EN    BIT(0)
+#define PRONTO_PMU_WLAN_AHB_CBCR_CLK_OFF   BIT(31)
+
+#define PRONTO_PMU_CPU_AHB_CMD_RCGR_OFFSET  0x0120
+#define PRONTO_PMU_CPU_AHB_CMD_RCGR_ROOT_EN BIT(1)
+
 #define PRONTO_PMU_CFG_OFFSET              0x1004
 #define PRONTO_PMU_COM_CSR_OFFSET          0x1040
 #define PRONTO_PMU_SOFT_RESET_OFFSET       0x104C
@@ -142,6 +150,13 @@ static DEFINE_SPINLOCK(reg_spinlock);
 #define WCNSS_VBATT_GUARD		200
 #define WCNSS_VBATT_HIGH		3700000
 #define WCNSS_VBATT_LOW			3300000
+
+#define DIV4_CBCR_CLK_EN               BIT(0)
+#define MEAS_CTRL_CT_EN                BIT(20)
+#define MEAS_STATUS_XO_DIV4_CNT_DONE   BIT(25)
+#define TCXO_COUNT_LOW                 0x800
+#define TCXO_COUNT_HIGH                0x8000
+#define CLK_MULTIPLIER                 4
 
 #define WCNSS_CTRL_CHANNEL			"WCNSS_CTRL"
 #define WCNSS_MAX_FRAME_SIZE		(4*1024)
@@ -196,8 +211,7 @@ static struct wcnss_pmic_dump wcnss_pmic_reg_dump[] = {
 
 #define NVBIN_FILE "wlan/prima/WCNSS_qcom_wlan_nv.bin"
 
-/*
- * On SMD channel 4K of maximum data can be transferred, including message
+/* On SMD channel 4K of maximum data can be transferred, including message
  * header, so NV fragment size as next multiple of 1Kb is 3Kb.
  */
 #define NV_FRAGMENT_SIZE  3072
@@ -225,8 +239,7 @@ struct nvbin_dnld_req_params {
 	 */
 	unsigned short frag_number;
 
-	/*
-	 * bit 0: When set to 1 it indicates that no more fragments will
+	/* bit 0: When set to 1 it indicates that no more fragments will
 	 * be sent.
 	 * bit 1: When set, a new message will be followed by this message
 	 * bit 2- bit 14:  Reserved
@@ -238,8 +251,7 @@ struct nvbin_dnld_req_params {
 	/* NV Image size (number of bytes) */
 	unsigned int nvbin_buffer_size;
 
-	/*
-	 * Following the 'nvbin_buffer_size', there should be
+	/* Following the 'nvbin_buffer_size', there should be
 	 * nvbin_buffer_size bytes of NV bin Image i.e.
 	 * uint8[nvbin_buffer_size].
 	 */
@@ -334,6 +346,10 @@ static struct {
 	void __iomem *wlan_tx_phy_aborts;
 	void __iomem *wlan_brdg_err_source;
 	void __iomem *fiq_reg;
+	void __iomem *dbgclk_reg;
+	void __iomem *div4cbcr_reg;
+	void __iomem *measctrl_reg;
+	void __iomem *measstatus_reg;
 	int	ssr_boot;
 	int	nv_downloaded;
 	unsigned char *fw_cal_data;
@@ -476,7 +492,7 @@ EXPORT_SYMBOL(wcnss_riva_log_debug_regs);
 void wcnss_pronto_log_debug_regs(void)
 {
 	void __iomem *reg_addr, *tst_addr, *tst_ctrl_addr;
-	u32 reg = 0, reg2 = 0;
+	u32 reg = 0, reg2 = 0, reg3 = 0, reg4 = 0;
 
 
 	reg_addr = penv->msm_wcnss_base + PRONTO_PMU_SPARE_OFFSET;
@@ -632,8 +648,19 @@ void wcnss_pronto_log_debug_regs(void)
 	reg_addr = penv->msm_wcnss_base + PRONTO_PMU_WLAN_GDSCR_OFFSET;
 	reg2 = readl_relaxed(reg_addr);
 
+	reg_addr = penv->msm_wcnss_base + PRONTO_PMU_WLAN_AHB_CBCR_OFFSET;
+	reg3 = readl_relaxed(reg_addr);
+	pr_info_ratelimited("%s:  PMU_WLAN_AHB_CBCR %08x\n", __func__, reg3);
+
+	reg_addr = penv->msm_wcnss_base + PRONTO_PMU_CPU_AHB_CMD_RCGR_OFFSET;
+	reg4 = readl_relaxed(reg_addr);
+	pr_info_ratelimited("%s:  PMU_CPU_CMD_RCGR %08x\n", __func__, reg4);
+
 	if ((reg & PRONTO_PMU_WLAN_BCR_BLK_ARES) ||
-			(reg2 & PRONTO_PMU_WLAN_GDSCR_SW_COLLAPSE)) {
+		(reg2 & PRONTO_PMU_WLAN_GDSCR_SW_COLLAPSE) ||
+		(!(reg4 & PRONTO_PMU_CPU_AHB_CMD_RCGR_ROOT_EN)) ||
+		(reg3 & PRONTO_PMU_WLAN_AHB_CBCR_CLK_OFF) ||
+		(!(reg3 & PRONTO_PMU_WLAN_AHB_CBCR_CLK_EN))) {
 		pr_info_ratelimited("%s:  Cannot log, wlan domain is power collapsed\n",
 				__func__);
 		return;
@@ -647,6 +674,14 @@ void wcnss_pronto_log_debug_regs(void)
 
 }
 EXPORT_SYMBOL(wcnss_pronto_log_debug_regs);
+
+#ifdef CONFIG_WCNSS_REGISTER_DUMP_ON_BITE
+void wcnss_log_debug_regs_on_bite(void)
+{
+	if (wcnss_hardware_type() == WCNSS_PRONTO_HW)
+		wcnss_pronto_log_debug_regs();
+}
+#endif
 
 /* interface to reset wcnss by sending the reset interrupt */
 void wcnss_reset_intr(void)
@@ -808,7 +843,7 @@ fail:
 	return rc;
 }
 
-static int __devinit
+static int
 wcnss_wlan_ctrl_probe(struct platform_device *pdev)
 {
 	if (!penv || !penv->triggered)
@@ -852,7 +887,7 @@ static struct platform_driver wcnss_wlan_ctrl_driver = {
 	.remove	= __devexit_p(wcnss_wlan_ctrl_remove),
 };
 
-static int __devexit
+static int
 wcnss_ctrl_remove(struct platform_device *pdev)
 {
 	if (penv && penv->smd_ch)
@@ -861,7 +896,7 @@ wcnss_ctrl_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devinit
+static int
 wcnss_ctrl_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -1133,6 +1168,97 @@ u32 wcnss_get_wlan_rx_buff_count(void)
 
 }
 EXPORT_SYMBOL(wcnss_get_wlan_rx_buff_count);
+
+u32 wcnss_sample_ahb_clk(void)
+{
+	u32 xo_div4_cbcr = 0;
+	u32 clk_freq = 0;
+	u32 short_clock_count = 0;
+	u32 clock_count = 0;
+	u32 reg = 0;
+
+	/* Save current values */
+	xo_div4_cbcr = readl_relaxed(penv->div4cbcr_reg);
+
+	reg = xo_div4_cbcr;
+
+	reg |= DIV4_CBCR_CLK_EN;
+	writel_relaxed(reg, penv->div4cbcr_reg);
+
+	/* Start with the counter disabled  */
+	reg = readl_relaxed(penv->measctrl_reg);
+	reg &= 0xfff00000;
+	writel_relaxed(reg, penv->measctrl_reg);
+
+	/* Program the starting counter value,
+	 * high enough to get good accuracy
+	 */
+	reg = TCXO_COUNT_LOW;
+	reg = reg | MEAS_CTRL_CT_EN;
+	writel_relaxed(reg, penv->measctrl_reg);
+
+	while (!(readl_relaxed(penv->measstatus_reg) &
+				MEAS_STATUS_XO_DIV4_CNT_DONE))
+		cpu_relax();
+
+	/* turn off the test clock and read the clock count */
+	reg &= ~(MEAS_CTRL_CT_EN);
+	writel_relaxed(reg, penv->measctrl_reg);
+
+	short_clock_count = readl_relaxed(penv->measstatus_reg);
+	short_clock_count &= 0xffffff;
+
+
+	/* Restore the registers */
+	writel_relaxed(xo_div4_cbcr, penv->div4cbcr_reg);
+
+	reg = xo_div4_cbcr;
+	reg |= DIV4_CBCR_CLK_EN;
+	writel_relaxed(reg, penv->div4cbcr_reg);
+
+	/* Start with the counter disabled  */
+	reg = readl_relaxed(penv->measctrl_reg);
+	reg &= 0xfff00000;
+	writel_relaxed(reg, penv->measctrl_reg);
+
+	reg = TCXO_COUNT_HIGH;
+	reg = reg | MEAS_CTRL_CT_EN;
+	writel_relaxed(reg, penv->measctrl_reg);
+
+
+	while (!(readl_relaxed(penv->measstatus_reg) &
+					MEAS_STATUS_XO_DIV4_CNT_DONE))
+				cpu_relax();
+
+	reg &= ~(MEAS_CTRL_CT_EN);
+	writel_relaxed(reg, penv->measctrl_reg);
+
+	clock_count = readl_relaxed(penv->measstatus_reg);
+	clock_count &= 0xffffff;
+
+	/* Calculate the frequency.  Function is provided by
+	 * Power Control 42.8.1.2 Measurement technique
+	 * f ring = f tcxo/4 * (Nring + 1.5) / (TCtcxo + 3.5)
+	 */
+
+	if (clock_count == short_clock_count)
+		clk_freq = 0;
+	else
+		clk_freq = (48 * CLK_MULTIPLIER * clock_count +
+			72 * CLK_MULTIPLIER) / (10 * TCXO_COUNT_HIGH + 35);
+
+	/* Clear the divide by 4 in DEBUG_CLK_CTL to make the
+	 * scope view of the clock the correct frequency
+	 */
+	reg = readl_relaxed(penv->dbgclk_reg);
+	reg &= reg & 0xffff0fff;
+	writel_relaxed(reg, penv->dbgclk_reg);
+
+	pr_info("%s: clock frequency %d\n", __func__, clk_freq);
+	return clk_freq;
+}
+EXPORT_SYMBOL(wcnss_sample_ahb_clk);
+
 
 static int wcnss_smd_tx(void *data, int len)
 {
@@ -1521,8 +1647,7 @@ static void wcnss_nvbin_dnld(void)
 		goto out;
 	}
 
-	/*
-	 * First 4 bytes in nv blob is validity bitmap.
+	/* First 4 bytes in nv blob is validity bitmap.
 	 * We cannot validate nv, so skip those 4 bytes.
 	 */
 	nv_blob_addr = nv->data + 4;
@@ -1939,6 +2064,70 @@ wcnss_trigger_config(struct platform_device *pdev)
 			goto fail_ioremap8;
 		}
 
+		res = platform_get_resource_byname(penv->pdev,
+				IORESOURCE_MEM, "wcnss_div4cbcr");
+		if (!res) {
+			dev_err(&pdev->dev, "insufficient irq mem resources\n");
+			ret = -ENOENT;
+			goto fail_ioremap9;
+		}
+		penv->div4cbcr_reg = ioremap_nocache(res->start,
+				resource_size(res));
+		if (!penv->div4cbcr_reg) {
+			pr_err("wcnss: %s: ioremap_nocache() failed div4cbcr_reg addr:%pr\n",
+				__func__, &res->start);
+			ret = -ENOMEM;
+			goto fail_ioremap9;
+		}
+
+		res = platform_get_resource_byname(penv->pdev,
+				IORESOURCE_MEM, "wcnss_dbgclk");
+		if (!res) {
+			dev_err(&pdev->dev, "insufficient irq mem resources\n");
+			ret = -ENOENT;
+			goto fail_ioremap10;
+		}
+		penv->dbgclk_reg = ioremap_nocache(res->start,
+				resource_size(res));
+		if (!penv->div4cbcr_reg) {
+			pr_err("wcnss: %s: ioremap_nocache() failed dbgclk_reg addr:%pr\n",
+				__func__, &res->start);
+			ret = -ENOMEM;
+			goto fail_ioremap10;
+		}
+
+		res = platform_get_resource_byname(penv->pdev,
+				IORESOURCE_MEM, "wcnss_measctrl");
+		if (!res) {
+			dev_err(&pdev->dev, "insufficient irq mem resources\n");
+			ret = -ENOENT;
+			goto fail_ioremap11;
+		}
+		penv->measctrl_reg = ioremap_nocache(res->start,
+				resource_size(res));
+		if (!penv->div4cbcr_reg) {
+			pr_err("wcnss: %s: ioremap_nocache() failed measctrl_reg addr:%pr\n",
+				__func__, &res->start);
+			ret = -ENOMEM;
+			goto fail_ioremap11;
+		}
+
+		res = platform_get_resource_byname(penv->pdev,
+				IORESOURCE_MEM, "wcnss_measstatus");
+		if (!res) {
+			dev_err(&pdev->dev, "insufficient irq mem resources\n");
+			ret = -ENOENT;
+			goto fail_ioremap12;
+		}
+		penv->measstatus_reg = ioremap_nocache(res->start,
+				resource_size(res));
+		if (!penv->div4cbcr_reg) {
+			pr_err("wcnss: %s: ioremap_nocache() failed measstatus_reg addr:%pr\n",
+				__func__, &res->start);
+			ret = -ENOMEM;
+			goto fail_ioremap12;
+		}
+
 	}
 	penv->adc_tm_dev = qpnp_get_adc_tm(&penv->pdev->dev, "wcnss");
 	if (IS_ERR(penv->adc_tm_dev)) {
@@ -1964,6 +2153,18 @@ wcnss_trigger_config(struct platform_device *pdev)
 fail_pil:
 	if (penv->riva_ccu_base)
 		iounmap(penv->riva_ccu_base);
+	if (penv->measstatus_reg)
+		iounmap(penv->measstatus_reg);
+fail_ioremap12:
+	if (penv->measctrl_reg)
+		iounmap(penv->measctrl_reg);
+fail_ioremap11:
+	if (penv->dbgclk_reg)
+		iounmap(penv->dbgclk_reg);
+fail_ioremap10:
+	if (penv->div4cbcr_reg)
+		iounmap(penv->div4cbcr_reg);
+fail_ioremap9:
 	if (penv->wlan_brdg_err_source)
 		iounmap(penv->wlan_brdg_err_source);
 fail_ioremap8:
@@ -2135,7 +2336,7 @@ static struct miscdevice wcnss_misc = {
 	.fops = &wcnss_node_fops,
 };
 
-static int __devinit
+static int
 wcnss_wlan_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -2178,7 +2379,7 @@ wcnss_wlan_probe(struct platform_device *pdev)
 
 }
 
-static int __devexit
+static int
 wcnss_wlan_remove(struct platform_device *pdev)
 {
 	wcnss_remove_sysfs(&pdev->dev);

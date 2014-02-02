@@ -1138,6 +1138,9 @@
 		qcom,leds@d300 {
 			status = "disabled";
 		};
+		qcom,leds@e200 {
+			status = "disabled";
+		};
 	};
 };
 
@@ -1400,6 +1403,7 @@
 
 &mdss_mdp {
 	qcom,mdss-pref-prim-intf = "dsi";
+	batfet-supply = <&pm8941_chg_batif>;
 };
 
 &mdss_fb0 {

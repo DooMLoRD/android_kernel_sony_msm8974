@@ -149,6 +149,10 @@ struct regulator_ocp_notification {
 	void *ctxt;
 };
 
+/* OCP mode */
+#define REGULATOR_OCP_MODE_DEFAULT		0
+#define REGULATOR_OCP_MODE_STRICTED		1
+
 #if defined(CONFIG_REGULATOR)
 
 /* regulator get and put */
@@ -203,6 +207,8 @@ int regulator_set_optimum_mode(struct regulator *regulator, int load_uA);
 /* regulator register ocp notification */
 int regulator_register_ocp_notification(struct regulator *regulator,
 			struct regulator_ocp_notification *ocp_notification);
+/* regulator set ocp mode */
+int regulator_set_ocp_mode(struct regulator *regulator, unsigned int mode);
 
 /* regulator notifier block */
 int regulator_register_notifier(struct regulator *regulator,
@@ -356,7 +362,13 @@ static inline int regulator_set_optimum_mode(struct regulator *regulator,
 
 static inline int regulator_register_ocp_notification(
 			struct regulator *regulator,
-			struct regulator_ocp_notification *ocp_notification);
+			struct regulator_ocp_notification *ocp_notification)
+{
+	return 0;
+}
+
+static inline int regulator_set_ocp_mode(struct regulator *regulator,
+					unsigned int mode)
 {
 	return 0;
 }

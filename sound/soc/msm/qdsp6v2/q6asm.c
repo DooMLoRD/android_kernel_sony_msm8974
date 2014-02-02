@@ -83,6 +83,8 @@ struct sony_volume_control volume_control[] = {
 	{ASM_MODULE_ID_VOL_CTRL, 0x20002000},
 };
 
+uint8_t *asm_get_param_buffer;
+
 /* SOMC effect control end */
 
 static int32_t q6asm_mmapcallback(struct apr_client_data *data, void *priv);
@@ -101,6 +103,12 @@ static int q6asm_map_channels(u8 *channel_mapping, uint32_t channels);
 void *q6asm_mmap_apr_reg(void);
 
 
+/* for ASM custom topology */
+static struct audio_buffer common_buf[2];
+static struct audio_client common_client;
+static int set_custom_topology;
+static int topology_map_handle;
+
 #ifdef CONFIG_DEBUG_FS
 #define OUT_BUFFER_SIZE 56
 #define IN_BUFFER_SIZE 24
@@ -118,10 +126,6 @@ static int in_cont_index;
 static int out_cold_index;
 static char *out_buffer;
 static char *in_buffer;
-static struct audio_buffer common_buf[2];
-static struct audio_client common_client;
-static int set_custom_topology;
-static int topology_map_handle;
 
 
 int q6asm_mmap_apr_dereg(void)
@@ -350,6 +354,81 @@ static void config_debug_fs_init(void)
 
 
 /* SOMC effect control start */
+int sony_popp_effect_get(void *client, void *params,
+				uint32_t param_size, uint32_t module_id)
+{
+	struct sony_popp_effect_get_params_command *cmd = NULL;
+	uint32_t cmd_size =
+		sizeof(struct sony_popp_effect_get_params_command);
+	struct audio_client *ac = NULL;
+	int rc = 0, sz = 0;
+
+	pr_debug("%s\n", __func__);
+	if (client == NULL) {
+		pr_err("%s: audio client is NULL\n", __func__);
+		return -EINVAL;
+	}
+	ac = (struct audio_client *)client;
+
+	if (params == NULL) {
+		pr_err("%s: effect param pointer is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	sz = cmd_size + param_size;
+	cmd = kzalloc(sz, GFP_KERNEL);
+	if (cmd == NULL) {
+		pr_err("%s: allocate cmd failed\n", __func__);
+		return -ENOMEM;
+	}
+
+	cmd->params.data_payload_addr_lsw = 0;
+	cmd->params.data_payload_addr_msw = 0;
+	cmd->params.mem_map_handle = 0;
+	cmd->params.reserved = 0;
+	cmd->params.module_id = module_id;
+	cmd->params.param_id = PARAM_ID_SONY_EFFECT;
+	cmd->params.param_max_size = SONY_ASM_PAYLOAD_SIZE + param_size;
+
+	asm_get_param_buffer = kzalloc(param_size, GFP_KERNEL);
+	if (asm_get_param_buffer == NULL) {
+		pr_err("%s: allocate param buf failed\n", __func__);
+		kfree(cmd);
+		return -ENOMEM;
+	}
+
+	q6asm_add_hdr_async(ac, &cmd->hdr, sz, TRUE);
+	cmd->hdr.opcode = ASM_STREAM_CMD_GET_PP_PARAMS_V2;
+	atomic_set(&ac->cmd_state, 1);
+
+	pr_info("%s: Get effect param(0x%08x) to DSP, param size %d\n",
+				__func__, module_id, param_size);
+	rc = apr_send_pkt(ac->apr, (uint32_t *) cmd);
+	if (rc < 0) {
+		pr_err("%s: Get popp effect param failed\n",
+				__func__);
+		rc = -EINVAL;
+		goto fail_cmd;
+	}
+
+	rc = wait_event_timeout(ac->cmd_wait,
+			(atomic_read(&ac->cmd_state) == 0), 5*HZ);
+	if (!rc) {
+		pr_err("%s: Getting popp effect param(0x%08x) failed\n",
+			__func__, module_id);
+		rc = -EINVAL;
+		goto fail_cmd;
+	}
+	rc = 0;
+
+	memcpy(params, asm_get_param_buffer, param_size);
+
+fail_cmd:
+	kfree(cmd);
+	kfree(asm_get_param_buffer);
+	return rc;
+}
+
 int sony_popp_effect_set(void *client, void *params,
 				uint32_t param_size, uint32_t module_id)
 {
@@ -1568,6 +1647,19 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 					__func__, payload[0]);
 		rtac_make_asm_callback(ac->session, payload,
 			data->payload_size);
+		/* payload is configured as below */
+		/* payload[0]:  return value      */
+		/* payload[1]:  module ID         */
+		/* payload[2]:  parameter ID      */
+		/* payload[3]:  parameter size    */
+		/* payload[4]-: parameter         */
+		if (payload[1] == ASM_MODULE_ID_DN ||
+			payload[1] == ASM_MODULE_ID_CA_VPT ||
+			payload[1] == ASM_MODULE_ID_VPT51)
+			memcpy(asm_get_param_buffer,
+					&payload[4], payload[3]);
+		atomic_set(&ac->cmd_state, 0);
+		wake_up(&ac->cmd_wait);
 		break;
 	case ASM_DATA_EVENT_READ_DONE_V2:{
 

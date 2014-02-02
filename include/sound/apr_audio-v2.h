@@ -6584,11 +6584,17 @@ struct afe_param_id_clip_bank_sel {
 
 /* SOMC effect start */
 #define SONY_ADM_PAYLOAD_SIZE	(4 * sizeof(uint32_t))
+#define SONY_ASM_PAYLOAD_SIZE	(4 * sizeof(uint32_t))
 
 struct sony_popp_effect_set_params_command {
 	struct apr_hdr	hdr;
 	struct asm_stream_cmd_set_pp_params_v2 params;
 	struct asm_stream_param_data_v2 data;
+} __packed;
+
+struct sony_popp_effect_get_params_command {
+	struct apr_hdr	hdr;
+	struct asm_stream_cmd_get_pp_params_v2 params;
 } __packed;
 
 /* Module/Parameter IDs */
@@ -6636,6 +6642,8 @@ int sony_copp_effect_set(int port_id, void *params,
 int sony_copp_effect_get(int port_id, void *params,
 				uint32_t param_size, uint32_t module_id);
 int sony_popp_effect_set(void *client, void *params,
+				uint32_t param_size, uint32_t module_id);
+int sony_popp_effect_get(void *client, void *params,
 				uint32_t param_size, uint32_t module_id);
 void sony_vol_module_update(void *client, uint32_t module);
 void sony_send_max_vol(void *client);

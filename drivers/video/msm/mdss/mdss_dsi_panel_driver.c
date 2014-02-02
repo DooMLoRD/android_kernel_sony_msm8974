@@ -510,6 +510,32 @@ static ssize_t mdss_dsi_panel_id_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", id);
 }
 
+static ssize_t mdss_dsi_panel_pcc_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = dev_get_drvdata(dev);
+	struct mdss_pcc_data *pcc_data = &ctrl_pdata->spec_pdata->pcc_data;
+	u32 r, g, b;
+
+	r = g = b = 0;
+	if (!pcc_data->color_tbl)
+		goto exit;
+	if (pcc_data->u_data == 0 && pcc_data->v_data == 0)
+		goto exit;
+	if (pcc_data->param_type == CLR_DATA_UV_PARAM_TYPE_SY35590_DEFAULT)
+		if (pcc_data->u_data == 0 && pcc_data->v_data == 0x24)
+			goto exit;
+	if (pcc_data->tbl_idx >= pcc_data->tbl_size)
+		goto exit;
+	if (pcc_data->color_tbl[pcc_data->tbl_idx].color_type == UNUSED)
+		goto exit;
+	r = pcc_data->color_tbl[pcc_data->tbl_idx].r_data;
+	g = pcc_data->color_tbl[pcc_data->tbl_idx].g_data;
+	b = pcc_data->color_tbl[pcc_data->tbl_idx].b_data;
+exit:
+	return scnprintf(buf, PAGE_SIZE, "0x%x 0x%x 0x%x ", r, g, b);
+}
+
 static struct device_attribute panel_attributes[] = {
 	__ATTR(frame_counter, S_IRUGO, mdss_dsi_panel_frame_counter, NULL),
 	__ATTR(frames_per_ksecs, S_IRUGO,
@@ -523,6 +549,7 @@ static struct device_attribute panel_attributes[] = {
 	__ATTR(cabc, S_IRUGO|S_IWUSR|S_IWGRP, mdss_dsi_panel_cabc_show,
 						mdss_dsi_panel_cabc_store),
 	__ATTR(panel_id, S_IRUGO, mdss_dsi_panel_id_show, NULL),
+	__ATTR(cc, S_IRUGO, mdss_dsi_panel_pcc_show, NULL),
 };
 
 static int register_attributes(struct device *dev)
@@ -776,7 +803,7 @@ static int mdss_dsi_panel_detect(struct mdss_panel_data *pdata)
 
 	mdss_dsi_op_mode_config(DSI_CMD_MODE, pdata);
 	mdss_dsi_cmds_rx(ctrl_pdata,
-			 spec_pdata->id_read_cmds.cmds, 10, 0);
+			 spec_pdata->id_read_cmds.cmds, 10);
 
 	pr_debug("%s: Panel ID", __func__);
 	pr_debug("0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X 0x%02X",
@@ -1208,7 +1235,7 @@ static void get_uv_data(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 	len = get_uv_param_len(param_type);
 
 	for (i = 0; i < ctrl_pdata->spec_pdata->uv_read_cmds.cmd_cnt; i++) {
-		mdss_dsi_cmds_rx(ctrl_pdata, cmds, len, 0);
+		mdss_dsi_cmds_rx(ctrl_pdata, cmds, len);
 		memcpy(pos, ctrl_pdata->rx_buf.data, len);
 		pos += len;
 		cmds++;

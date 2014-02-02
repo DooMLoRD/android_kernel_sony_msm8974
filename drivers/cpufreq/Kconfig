@@ -238,6 +238,14 @@ config CPU_FREQ_GOV_CONSERVATIVE
 
 	  If in doubt, say N.
 
+config CPU_FREQ_WAKEUP_BOOST
+	bool "CPU frequency boost during wakeup"
+	depends on CPU_FREQ_GOV_ONDEMAND
+	default y
+	help
+	  This will boost CPU clock frequences during wakeup in order to
+	  minimize wakeup time.
+
 config CPU_FREQ_GOV_INTELLIDEMAND
         tristate "'intellidemand' cpufreq policy governor"
         select CPU_FREQ_TABLE
@@ -275,6 +283,7 @@ config CPUFREQ_LIMIT_MAX_FREQ
 	depends on CPU_FREQ_GOV_INTELLIDEMAND
 	help
 		Limit Max Freq while screen is on for Intellidemand governor
+
 
 menu "x86 CPU frequency scaling drivers"
 depends on X86

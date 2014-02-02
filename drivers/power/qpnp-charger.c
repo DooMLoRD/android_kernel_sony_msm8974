@@ -322,6 +322,9 @@ struct qpnp_somc_params {
 	int			disconnect_count;
 	bool			enabling_regulator_boost;
 	bool			first_start_health_check;
+	bool			resume_charging;
+	int			prev_status;
+	bool			health_improving;
 };
 
 /**
@@ -481,7 +484,7 @@ static void qpnp_smbb_sw_controlled_clk_work(struct work_struct *work);
 static void qpnp_chg_aicl_iusb_set(struct qpnp_chg_chip *chip, int limit_ma);
 static void qpnp_chg_aicl_idc_set(struct qpnp_chg_chip *chip, int limit_ma);
 static void qpnp_chg_aicl_set_work(struct work_struct *work);
-
+static int get_prop_batt_temp(struct qpnp_chg_chip *chip);
 
 static const char * const bpd_label[] = {
 	[BPD_TYPE_BAT_ID] = "bpd_id",
@@ -1290,6 +1293,7 @@ qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 
 	if (!chip->usb_present && !chip->dc_present) {
 		chip->chg_done = false;
+		chip->somc_params.resume_charging = false;
 		notify_input_chg_unplug(chip, true);
 		if (chip->somc_params.ovp_chg_dis) {
 			chip->somc_params.ovp_chg_dis = false;
@@ -1389,6 +1393,7 @@ qpnp_chg_dc_dcin_valid_irq_handler(int irq, void *_chip)
 
 	if (!chip->dc_present && !chip->usb_present) {
 		chip->chg_done = false;
+		chip->somc_params.resume_charging = false;
 		notify_input_chg_unplug(chip, true);
 		if (chip->somc_params.ovp_chg_dis) {
 			chip->somc_params.ovp_chg_dis = false;
@@ -1435,6 +1440,7 @@ qpnp_chg_chgr_chg_trklchg_irq_handler(int irq, void *_chip)
 	pr_debug("TRKL IRQ triggered\n");
 
 	chip->chg_done = false;
+	chip->somc_params.resume_charging = false;
 	if (chip->bat_if_base) {
 		pr_debug("psy changed batt_psy\n");
 		power_supply_changed(&chip->batt_psy);
@@ -1456,6 +1462,7 @@ qpnp_chg_chgr_chg_fastchg_irq_handler(int irq, void *_chip)
 
 	pr_debug("FAST_CHG IRQ triggered\n");
 	chip->chg_done = false;
+	chip->somc_params.resume_charging = false;
 	if (chip->bat_if_base) {
 		pr_debug("psy changed batt_psy\n");
 		power_supply_changed(&chip->batt_psy);
@@ -1644,6 +1651,11 @@ qpnp_power_get_property_mains(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_PRESENT:
 	case POWER_SUPPLY_PROP_ONLINE:
 		val->intval = qpnp_chg_is_dc_chg_plugged_in(chip);
+		if (chip->somc_params.enabling_regulator_boost &&
+			!val->intval) {
+			pr_err("enabling regulator online=%d\n", val->intval);
+			val->intval = true;
+		}
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 		val->intval = chip->maxinput_dc_ma * 1000;
@@ -1711,26 +1723,57 @@ check_if_health_change(struct qpnp_chg_chip *chip, int health)
 
 #define BATT_TEMP_HOT	BIT(6)
 #define BATT_TEMP_OK	BIT(7)
+#define BATT_TEMP_HOT_DDC	550
+#define BATT_TEMP_NEAR_HOT_DDC	530
+#define BATT_TEMP_NEAR_COLD_DDC	70
+#define BATT_TEMP_COLD_DDC	50
 static int
 get_prop_batt_health(struct qpnp_chg_chip *chip)
 {
 	u8 batt_health;
 	int rc;
+	int temperature;
 	int health;
+	bool *improving = &(chip->somc_params.health_improving);
 
 	rc = qpnp_chg_read(chip, &batt_health,
-				chip->bat_if_base + CHGR_STATUS, 1);
+				chip->bat_if_base + BAT_IF_TEMP_STATUS, 1);
 	if (rc) {
 		pr_err("Couldn't read battery health read failed rc=%d\n", rc);
 		return POWER_SUPPLY_HEALTH_UNKNOWN;
-	};
+	}
 
-	if (BATT_TEMP_OK & batt_health)
+	if (BATT_TEMP_OK & batt_health) {
 		health = POWER_SUPPLY_HEALTH_GOOD;
-	else if (BATT_TEMP_HOT & batt_health)
-		health = POWER_SUPPLY_HEALTH_OVERHEAT;
-	else
-		health = POWER_SUPPLY_HEALTH_COLD;
+	} else {
+		temperature = get_prop_batt_temp(chip);
+		if (temperature == 0)
+			return POWER_SUPPLY_HEALTH_UNKNOWN;
+
+		if (temperature > BATT_TEMP_HOT_DDC) {
+			health = POWER_SUPPLY_HEALTH_OVERHEAT;
+			*improving = true;
+		} else if (temperature < BATT_TEMP_COLD_DDC) {
+			health = POWER_SUPPLY_HEALTH_COLD;
+			*improving = true;
+		} else {
+			if ((temperature >= BATT_TEMP_NEAR_COLD_DDC)
+				&& (temperature <= BATT_TEMP_NEAR_HOT_DDC)) {
+				*improving = false;
+				health = POWER_SUPPLY_HEALTH_GOOD;
+			} else if ((temperature < BATT_TEMP_NEAR_COLD_DDC)) {
+				if (*improving == false)
+					health = POWER_SUPPLY_HEALTH_GOOD;
+				else
+					health = POWER_SUPPLY_HEALTH_COLD;
+			} else {
+				if (*improving == false)
+					health = POWER_SUPPLY_HEALTH_GOOD;
+				else
+					health = POWER_SUPPLY_HEALTH_OVERHEAT;
+			}
+		}
+	}
 
 	check_if_health_change(chip, health);
 	return health;
@@ -1787,6 +1830,11 @@ get_prop_batt_status(struct qpnp_chg_chip *chip)
 		return POWER_SUPPLY_STATUS_CHARGING;
 	if (chgr_sts & FAST_CHG_ON_IRQ)
 		return POWER_SUPPLY_STATUS_CHARGING;
+
+	if (chip->somc_params.prev_status &&
+		(chip->somc_params.resume_charging ||
+		chip->somc_params.kick_rb_workaround))
+		return chip->somc_params.prev_status;
 
 	return POWER_SUPPLY_STATUS_DISCHARGING;
 }
@@ -1921,6 +1969,7 @@ static int get_prop_online(struct qpnp_chg_chip *chip)
 }
 
 #define USB_MAX_CURRENT_MIN 2
+#define VBATDET_RECHARGE_DELTA_MV 30
 static void
 qpnp_batt_external_power_changed(struct power_supply *psy)
 {
@@ -2011,9 +2060,11 @@ qpnp_batt_external_power_changed(struct power_supply *psy)
 			chip->somc_params.resume_delta_soc) {
 			wake_lock(&chip->eoc_wake_lock);
 			chip->chg_done = false;
+			chip->somc_params.resume_charging = true;
 			pr_info("Start recharging\n");
 			/* Prevent BAT_FET_OPEN during recharging */
-			qpnp_chg_vbatdet_set(chip, chip->max_voltage_mv);
+			qpnp_chg_vbatdet_set(chip, chip->max_voltage_mv +
+						VBATDET_RECHARGE_DELTA_MV);
 			qpnp_chg_enable_charge(chip,
 					!chip->charging_disabled);
 			schedule_delayed_work(&chip->eoc_work,
@@ -2036,6 +2087,7 @@ qpnp_batt_power_get_property(struct power_supply *psy,
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = get_prop_batt_status(chip);
+		chip->somc_params.prev_status = val->intval;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		val->intval = get_prop_charge_type(chip);
@@ -3451,6 +3503,7 @@ qpnp_eoc_work(struct work_struct *work)
 				qpnp_chg_disable_charge_with_batfet(chip,
 								BATFET_OPEN);
 				chip->chg_done = true;
+				chip->somc_params.resume_charging = false;
 				pr_debug("psy changed batt_psy\n");
 				power_supply_changed(&chip->batt_psy);
 				if (!chip->somc_params.resume_delta_soc)
@@ -3479,6 +3532,7 @@ qpnp_eoc_work(struct work_struct *work)
 				qpnp_chg_disable_charge_with_batfet(chip,
 								BATFET_OPEN);
 				chip->chg_done = true;
+				chip->somc_params.resume_charging = false;
 				power_supply_changed(&chip->batt_psy);
 				if (!chip->somc_params.resume_delta_soc)
 					qpnp_chg_enable_irq(
@@ -5274,7 +5328,7 @@ qpnp_charger_probe(struct spmi_device *spmi)
 
 	schedule_delayed_work(&chip->aicl_check_work,
 		msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
-	pr_info("success chg_dis = %d, bpd = %d, usb = %d, dc = %d b_health = %d batt_present = %d\n",
+	pr_info("success chg_dis = %d, bpd = %d, usb = %d, dc = %d  batt_present = %d b_health= %d\n",
 			chip->charging_disabled,
 			chip->bpd_detection,
 			qpnp_chg_is_usb_chg_plugged_in(chip),

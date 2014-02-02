@@ -18,9 +18,11 @@
 #include <linux/io.h>
 #include <linux/msm_mdp.h>
 #include <linux/platform_device.h>
+#include <linux/notifier.h>
 
 #include "mdss.h"
 #include "mdss_mdp_hwio.h"
+#include "mdss_fb.h"
 
 #define MDSS_MDP_DEFAULT_INTR_MASK 0
 #define MDSS_MDP_CURSOR_WIDTH 64
@@ -187,6 +189,9 @@ struct mdss_mdp_ctl {
 	int (*remove_vsync_handler) (struct mdss_mdp_ctl *,
 					struct mdss_mdp_vsync_handler *);
 	int (*config_fps_fnc) (struct mdss_mdp_ctl *ctl, int new_fps);
+
+	struct blocking_notifier_head notifier_head;
+
 	void *priv_data;
 	u32 wb_type;
 };
@@ -311,8 +316,9 @@ struct mdss_pipe_pp_res {
 };
 
 struct mdss_mdp_pipe_smp_map {
-	DECLARE_BITMAP(reserved, MDSS_MDP_SMP_MMB_BLOCKS);
-	DECLARE_BITMAP(allocated, MDSS_MDP_SMP_MMB_BLOCKS);
+	DECLARE_BITMAP(reserved, MAX_DRV_SUP_MMB_BLKS);
+	DECLARE_BITMAP(allocated, MAX_DRV_SUP_MMB_BLKS);
+	DECLARE_BITMAP(fixed, MAX_DRV_SUP_MMB_BLKS);
 };
 
 struct mdss_mdp_pipe {
@@ -324,6 +330,7 @@ struct mdss_mdp_pipe {
 	atomic_t ref_cnt;
 	u32 play_cnt;
 	int pid;
+	bool is_handed_off;
 
 	u32 flags;
 	u32 bwc_mode;
@@ -393,6 +400,7 @@ struct mdss_overlay_private {
 	int free_list_size;
 	int ad_state;
 
+	bool handoff;
 	u32 splash_mem_addr;
 	u32 splash_mem_size;
 	u32 sd_enabled;
@@ -451,6 +459,7 @@ int mdss_mdp_set_intr_callback(u32 intr_type, u32 intf_num,
 			       void (*fnc_ptr)(void *), void *arg);
 
 void mdss_mdp_footswitch_ctrl_splash(int on);
+void mdss_mdp_batfet_ctrl(struct mdss_data_type *mdata, int enable);
 int mdss_mdp_bus_scale_set_quota(u64 ab_quota, u64 ib_quota);
 void mdss_mdp_set_clk_rate(unsigned long min_clk_rate);
 unsigned long mdss_mdp_get_clk_rate(u32 clk_idx);
@@ -478,9 +487,11 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 
 struct mdss_mdp_ctl *mdss_mdp_ctl_init(struct mdss_panel_data *pdata,
 					struct msm_fb_data_type *mfd);
-int mdss_mdp_video_reconfigure_splash_done(struct mdss_mdp_ctl *ctl);
-int mdss_mdp_cmd_reconfigure_splash_done(struct mdss_mdp_ctl *ctl);
-int mdss_mdp_ctl_splash_finish(struct mdss_mdp_ctl *ctl);
+int mdss_mdp_video_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
+		bool handoff);
+int mdss_mdp_cmd_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
+		bool handoff);
+int mdss_mdp_ctl_splash_finish(struct mdss_mdp_ctl *ctl, bool handoff);
 int mdss_mdp_ctl_setup(struct mdss_mdp_ctl *ctl);
 int mdss_mdp_ctl_split_display_setup(struct mdss_mdp_ctl *ctl,
 		struct mdss_panel_data *pdata);
@@ -490,7 +501,14 @@ int mdss_mdp_ctl_stop(struct mdss_mdp_ctl *ctl);
 int mdss_mdp_ctl_intf_event(struct mdss_mdp_ctl *ctl, int event, void *arg);
 int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 		struct mdss_mdp_perf_params *perf);
+int mdss_mdp_ctl_notify(struct mdss_mdp_ctl *ctl, int event);
+void mdss_mdp_ctl_notifier_register(struct mdss_mdp_ctl *ctl,
+	struct notifier_block *notifier);
+void mdss_mdp_ctl_notifier_unregister(struct mdss_mdp_ctl *ctl,
+	struct notifier_block *notifier);
 
+int mdss_mdp_mixer_handoff(struct mdss_mdp_ctl *ctl, u32 num,
+	struct mdss_mdp_pipe *pipe);
 struct mdss_mdp_mixer *mdss_mdp_wb_mixer_alloc(int rotator);
 int mdss_mdp_wb_mixer_destroy(struct mdss_mdp_mixer *mixer);
 struct mdss_mdp_mixer *mdss_mdp_mixer_get(struct mdss_mdp_ctl *ctl, int mux);
@@ -544,6 +562,8 @@ int mdss_mdp_ad_addr_setup(struct mdss_data_type *mdata, u32 *ad_off);
 int mdss_mdp_calib_mode(struct msm_fb_data_type *mfd,
 				struct mdss_calib_cfg *cfg);
 
+int mdss_mdp_pipe_handoff(struct mdss_mdp_pipe *pipe);
+int mdss_mdp_smp_handoff(struct mdss_data_type *mdata);
 struct mdss_mdp_pipe *mdss_mdp_pipe_alloc(struct mdss_mdp_mixer *mixer,
 					  u32 type);
 struct mdss_mdp_pipe *mdss_mdp_pipe_get(struct mdss_data_type *mdata, u32 ndx);
@@ -618,4 +638,5 @@ int mdss_mdp_wb_get_format(struct msm_fb_data_type *mfd,
 #define mfd_to_wb(mfd) (((struct mdss_overlay_private *)\
 				(mfd->mdp.private1))->wb)
 
+int  mdss_mdp_ctl_reset(struct mdss_mdp_ctl *ctl);
 #endif /* MDSS_MDP_H */

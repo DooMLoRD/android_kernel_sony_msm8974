@@ -2448,6 +2448,32 @@ out:
 EXPORT_SYMBOL_GPL(regulator_register_ocp_notification);
 
 /**
+ * regulator_set_ocp_mode - set the operating mode for ocp
+ * @regulator: regulator source
+ * @mode: operating mode - one of the REGULATOR_OCP_MODE constants
+ *
+ */
+int regulator_set_ocp_mode(struct regulator *regulator, unsigned int mode)
+{
+	struct regulator_dev *rdev = regulator->rdev;
+	int ret;
+
+	mutex_lock(&rdev->mutex);
+
+	/* sanity check */
+	if (!rdev->desc->ops->set_ocp_mode) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = rdev->desc->ops->set_ocp_mode(rdev, mode);
+out:
+	mutex_unlock(&rdev->mutex);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(regulator_set_ocp_mode);
+
+/**
  * regulator_register_notifier - register regulator event notifier
  * @regulator: regulator source
  * @nb: notifier block
