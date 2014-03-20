@@ -21,6 +21,9 @@
 
 		status = "disabled";
 
+		qcom,max-bandwidth-low-kbps = <6000000>;
+		qcom,max-bandwidth-high-kbps = <6000000>;
+
 		qcom,max-clk-rate = <320000000>;
 
 		qcom,mdss-pipe-vig-off = <0x00001200 0x00001600
@@ -32,6 +35,10 @@
 		qcom,mdss-pipe-vig-fetch-id = <1 4 7 19>;
 		qcom,mdss-pipe-rgb-fetch-id = <16 17 18 22>;
 		qcom,mdss-pipe-dma-fetch-id = <10 13>;
+
+		qcom,mdss-pipe-vig-xin-id = <0 4 8 12>;
+		qcom,mdss-pipe-rgb-xin-id = <1 5 9 13>;
+		qcom,mdss-pipe-dma-xin-id = <2 10>;
 
 		qcom,mdss-smp-data = <44 8192>;
 

@@ -711,12 +711,31 @@ config NFC_PN544
 	help
 	  This option enables support for PN544.
 
-config SOMC_ISDBT_TUNER
-	tristate "SOMC ISDBT/Tmm tuner driver for SMT-EJ11x"
+config ISDBT_TUNER_SMTEJ11X
+	tristate "ISDBT/Tmm tuner driver for SMT-EJ11x"
 	default n
 	depends on I2C
 	help
-	  Select this module to enable SOMC ISDB-T Tuner Driver.
+	  Select this module to enable ISDBT/Tmm Tuner Driver which
+	  supports ISDBT/Tmm contents viewing(1seg, Fullseg, Nottv).
+	  This module controls power and reset of SMT-EJ11x and controls
+	  reception ANT switching.
+
+config RPM975H16E4A_IRDA
+	bool "IrDA power control driver for Rohm RPM975-H16E4A"
+	default n
+	help
+	  This option enables support for Rohm RPM975-H16E4A.
+
+config ONESEG_TUNER_SMTVJ18X
+	tristate "ONESEG tuner driver for SMT-VJ18x"
+	default n
+	depends on I2C
+	help
+	  Select this module to enable 1seg Tuner Driver which supports
+	  1seg contents viewing.
+	  This module controls power and reset of SMT-VEJ18x and supports
+	  the ANT which is equiped as default.
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
@@ -726,4 +745,5 @@ source "drivers/misc/ti-st/Kconfig"
 source "drivers/misc/lis3lv02d/Kconfig"
 source "drivers/misc/carma/Kconfig"
 source "drivers/misc/altera-stapl/Kconfig"
+source "drivers/misc/felica_snfc/Kconfig"
 endmenu

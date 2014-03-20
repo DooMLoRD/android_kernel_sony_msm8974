@@ -34,7 +34,6 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
 		qcom,mdss-dsi-underflow-color = <0x0>;
 		qcom,mdss-dsi-border-color = <0>;
 		somc,mdss-dsi-id-read-command = [06 01 00 01 05 00 02 A1 00];
@@ -118,8 +117,7 @@
 		somc,mdss-dsi-cabc-enabled = <1>;
 
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
@@ -131,8 +129,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x31>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <4095>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 		qcom,mdss-dsi-pan-enable-dynamic-fps;
 		qcom,mdss-dsi-pan-fps-update = "dfps_suspend_resume_mode";
@@ -174,7 +172,6 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
 		qcom,mdss-dsi-underflow-color = <0x0>;
 		qcom,mdss-dsi-border-color = <0>;
 		somc,mdss-dsi-id-read-command = [06 01 00 01 05 00 02 A1 00];
@@ -258,8 +255,7 @@
 		somc,mdss-dsi-cabc-enabled = <1>;
 
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
@@ -271,8 +267,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x31>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <4095>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 		qcom,mdss-dsi-pan-enable-dynamic-fps;
 		qcom,mdss-dsi-pan-fps-update = "dfps_suspend_resume_mode";
@@ -371,7 +367,6 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
 		qcom,mdss-dsi-underflow-color = <0x0>;
 		qcom,mdss-dsi-border-color = <0>;
 		somc,mdss-dsi-id-read-command = [06 01 00 01 05 00 02 A1 00];
@@ -455,8 +450,7 @@
 		somc,mdss-dsi-cabc-enabled = <1>;
 
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
@@ -468,8 +462,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x31>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <4095>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 		qcom,mdss-dsi-pan-enable-dynamic-fps;
 		qcom,mdss-dsi-pan-fps-update = "dfps_suspend_resume_mode";
@@ -987,8 +981,7 @@
 		somc,mdss-dsi-cabc-enabled = <1>;
 
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
@@ -1000,8 +993,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x37>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <4095>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 		qcom,mdss-dsi-pan-enable-dynamic-fps;
 		qcom,mdss-dsi-pan-fps-update = "dfps_suspend_resume_mode";
@@ -1043,7 +1036,6 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
 		qcom,mdss-dsi-underflow-color = <0x0>;
 		qcom,mdss-dsi-border-color = <0>;
 		somc,mdss-dsi-id-read-command = [06 01 00 01 05 00 02 A1 00];
@@ -1461,8 +1453,7 @@
 		somc,mdss-dsi-cabc-enabled = <1>;
 
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
@@ -1474,8 +1465,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x37>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <4095>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 		qcom,mdss-dsi-pan-enable-dynamic-fps;
 		qcom,mdss-dsi-pan-fps-update = "dfps_suspend_resume_mode";

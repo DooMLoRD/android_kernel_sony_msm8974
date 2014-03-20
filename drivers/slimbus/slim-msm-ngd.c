@@ -973,6 +973,7 @@ static void ngd_laddr_lookup(struct work_struct *work)
 	struct slim_controller *ctrl = &dev->ctrl;
 	struct slim_device *sbdev;
 	int i;
+	slim_framer_booted(ctrl);
 	mutex_lock(&ctrl->m_ctrl);
 	list_for_each_entry(sbdev, &ctrl->devs, dev_list) {
 		int ret = 0;
@@ -1065,7 +1066,7 @@ static int __devinit ngd_slim_probe(struct platform_device *pdev)
 	}
 
 	dev = kzalloc(sizeof(struct msm_slim_ctrl), GFP_KERNEL);
-	if (IS_ERR(dev)) {
+	if (IS_ERR_OR_NULL(dev)) {
 		dev_err(&pdev->dev, "no memory for MSM slimbus controller\n");
 		return PTR_ERR(dev);
 	}

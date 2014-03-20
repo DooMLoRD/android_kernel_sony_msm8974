@@ -42,6 +42,10 @@
 /* 400msec is enough to wait the RGND interruption. */
 #define DISCOVERY_TIME 400
 
+/* VMIN */
+#define VMIN_MHL 4300000
+#define MAX_WAIT_GET_BATTERY 30
+
 #define pr_debug_intr(...)
 #define REMOVE_CLEAR_INTRS
 
@@ -376,8 +380,8 @@ static int mhl_sii_wait_for_rgnd(struct mhl_tx_ctrl *mhl_ctrl)
 	/* let isr handle RGND interrupt */
 	pr_debug("%s:%u\n", __func__, __LINE__);
 	INIT_COMPLETION(mhl_ctrl->rgnd_done);
-	timeout = wait_for_completion_interruptible_timeout
-		(&mhl_ctrl->rgnd_done, HZ/2);
+	timeout = wait_for_completion_timeout
+		(&mhl_ctrl->rgnd_done, HZ * 3);
 	if (!timeout) {
 		if (mhl_ctrl->cur_state != POWER_STATE_D3)
 			switch_mode(mhl_ctrl, POWER_STATE_D3);
@@ -393,7 +397,7 @@ static int mhl_sii_wait_for_rgnd(struct mhl_tx_ctrl *mhl_ctrl)
 static int mhl_sii_device_discovery(void *data, int id,
 			     void (*usb_notify_cb)(void *, int), void *ctx)
 {
-	int rc;
+	int rc, timeout_count;
 	struct mhl_tx_ctrl *mhl_ctrl = data;
 
 	if (id) {
@@ -414,6 +418,16 @@ static int mhl_sii_device_discovery(void *data, int id,
 		mhl_ctrl->notify_usb_online = usb_notify_cb;
 		mhl_ctrl->notify_ctx = ctx;
 	}
+
+	timeout_count = MAX_WAIT_GET_BATTERY;
+	while (!mhl_ctrl->batt_psy && --timeout_count) {
+		/* acquire "the chager driver's power_supply" to change VMIN */
+		mhl_ctrl->batt_psy = power_supply_get_by_name("battery");
+		if (!mhl_ctrl->batt_psy)
+			msleep(100);
+	}
+	if (!timeout_count)
+		pr_warn("%s:power_supply_get_by_name failed\n", __func__);
 
 	if (!mhl_ctrl->disc_enabled) {
 		mhl_ctrl->cur_state = POWER_STATE_D0_MHL;
@@ -541,6 +555,35 @@ static enum power_supply_property mhl_pm_power_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_CURRENT_MAX,
 };
+
+static void mhl_msm_vmin_change(struct mhl_tx_ctrl *mhl_ctrl, bool on)
+{
+	union power_supply_propval vmin;
+
+	if (!mhl_ctrl->batt_psy) {
+		mhl_ctrl->batt_psy = power_supply_get_by_name("battery");
+		if (!mhl_ctrl->batt_psy) {
+			pr_warn("%s: batt_psy is NULL\n", __func__);
+			return;
+		}
+	}
+
+	if (on) {
+		/*  VMIN change to MHL Spec value */
+		vmin.intval = VMIN_MHL;
+		mhl_ctrl->batt_psy->set_property(mhl_ctrl->batt_psy,
+			POWER_SUPPLY_PROP_VOLTAGE_MIN, &vmin);
+		pr_info("%s: vmin.intval=%d\n", __func__, vmin.intval);
+	} else {
+		/* VMIN change to DEFAULT value */
+		mhl_ctrl->batt_psy->get_property(mhl_ctrl->batt_psy,
+			POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN, &vmin);
+
+		mhl_ctrl->batt_psy->set_property(mhl_ctrl->batt_psy,
+			POWER_SUPPLY_PROP_VOLTAGE_MIN, &vmin);
+		pr_info("%s: vmin.intval=%d\n", __func__, vmin.intval);
+	}
+}
 
 static void cbus_reset(struct mhl_tx_ctrl *mhl_ctrl)
 {
@@ -936,6 +979,7 @@ static int  mhl_msm_read_rgnd_int(struct mhl_tx_ctrl *mhl_ctrl)
 			del_timer(&mhl_ctrl->discovery_timer);
 		mhl_ctrl->mhl_mode = 1;
 		if (!mhl_ctrl->discovering) {
+			mhl_msm_vmin_change(mhl_ctrl, true);
 			power_supply_changed(&mhl_ctrl->mhl_psy);
 			if (mhl_ctrl->notify_usb_online) {
 				mhl_ctrl->notify_usb_online_plugged = true;
@@ -1014,6 +1058,7 @@ static void mhl_discovery_timeout_work(struct work_struct *work)
 	}
 
 	if (mhl_ctrl->notify_usb_online_plugged) {
+		mhl_msm_vmin_change(mhl_ctrl, false);
 		power_supply_changed(&mhl_ctrl->mhl_psy);
 		if (mhl_ctrl->notify_usb_online) {
 			mhl_ctrl->notify_usb_online_plugged = false;
@@ -1266,7 +1311,7 @@ int mhl_send_msc_command(struct mhl_tx_ctrl *mhl_ctrl,
 
 	INIT_COMPLETION(mhl_ctrl->msc_cmd_done);
 	MHL_SII_REG_NAME_WR(REG_CBUS_PRI_START, start_bit);
-	timeout = wait_for_completion_interruptible_timeout
+	timeout = wait_for_completion_timeout
 		(&mhl_ctrl->msc_cmd_done, msecs_to_jiffies(T_ABORT_NEXT));
 	if (!timeout) {
 		pr_err("%s: cbus_command_send timed out!\n", __func__);

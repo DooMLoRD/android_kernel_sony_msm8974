@@ -23,6 +23,10 @@ Required properties
 				previous property, the amount of fetch ids
 				defined should match the number of offsets
 				defined in property: qcom,mdss-pipe-vig-off
+- qcom,mdss-pipe-vig-xin-id:	Array of VBIF clients ids (xins) corresponding
+				to the respective VIG pipes. Number of xin ids
+				defined should match the number of offsets
+				defined in property: qcom,mdss-pipe-vig-off
 - qcom,mdss-pipe-rgb-off:	Array of offsets for MDP source surface pipes of
 				type RGB, the offsets are calculated from
 				register "mdp_phys" defined in reg property.
@@ -34,6 +38,10 @@ Required properties
 				previous property, the amount of fetch ids
 				defined should match the number of offsets
 				defined in property: qcom,mdss-pipe-rgb-off
+- qcom,mdss-pipe-rgb-xin-id:	Array of VBIF clients ids (xins) corresponding
+				to the respective RGB pipes. Number of xin ids
+				defined should match the number of offsets
+				defined in property: qcom,mdss-pipe-rgb-off
 - qcom,mdss-pipe-dma-off:	Array of offsets for MDP source surface pipes of
 				type DMA, the offsets are calculated from
 				register "mdp_phys" defined in reg property.
@@ -43,6 +51,10 @@ Required properties
 - qcom,mdss-pipe-dma-fetch-id:	Array of shared memory pool fetch ids
 				corresponding to the DMA pipe offsets defined in
 				previous property, the amount of fetch ids
+				defined should match the number of offsets
+				defined in property: qcom,mdss-pipe-dma-off
+- qcom,mdss-pipe-dma-xin-id:	Array of VBIF clients ids (xins) corresponding
+				to the respective DMA pipes. Number of xin ids
 				defined should match the number of offsets
 				defined in property: qcom,mdss-pipe-dma-off
 - qcom,mdss-smp-data:		Array of shared memory pool data. There should
@@ -146,7 +158,18 @@ Optional properties:
 				total numbers of MMBs per pipe while values, if
 				any, following first one denotes indexes of MMBs
 				to that RGB pipe.
-
+- qcom,max-bandwidth-low-kbps:	This value indicates the max bandwidth in KB
+				that can be supported without underflow.
+				This is a low bandwidth threshold which should
+				be applied in most scenarios to be safe from
+				underflows when unable to satisfy bandwith
+				requirements.
+- qcom,max-bandwidth-high-kbps:	This value indicates the max bandwidth in KB
+				that can be supported without underflow.
+				This is a high bandwidth threshold which can be
+				applied in scenarios where panel interface can
+				be more tolerant to memory latency such as
+				command mode panels.
 Optional subnodes:
 Child nodes representing the frame buffer virtual devices.
 
@@ -186,6 +209,10 @@ Example:
 		vdd-supply = <&gdsc_mdss>;
 		vdd-cx-supply = <&pm8841_s2_corner>;
 		batfet-supply = <&pm8941_chg_batif>;
+
+		qcom,max-bandwidth-low-kbps = <2300000>;
+		qcom,max-bandwidth-high-kbps = <3000000>;
+
 		qcom,max-clk-rate = <320000000>;
 		qcom,vbif-settings = <0x0004 0x00000001>,
 				     <0x00D8 0x00000707>;
@@ -203,6 +230,11 @@ Example:
 						<2 2 3>,
 						<2 4 5>,
 						<2 6 7>;
+
+		qcom,mdss-pipe-vig-xin-id = <0 4 8>;
+		qcom,mdss-pipe-rgb-xin-id = <1 5 9>;
+		qcom,mdss-pipe-dma-xin-id = <2 10>;
+
 		qcom,mdss-smp-data = <22 4096>;
 		qcom,mdss-rot-block-size = <64>;
 		qcom,mdss-smp-mb-per-pipe = <2>;

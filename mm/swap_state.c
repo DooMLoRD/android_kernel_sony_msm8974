@@ -5,6 +5,8 @@
  *  Swap reorganised 29.12.95, Stephen Tweedie
  *
  *  Rewritten to use page cache, (C) 1998 Stephen Tweedie
+ *
+ *  Copyright (C) VMware, Inc. 2013
  */
 #include <linux/mm.h>
 #include <linux/gfp.h>
@@ -17,6 +19,7 @@
 #include <linux/pagevec.h>
 #include <linux/migrate.h>
 #include <linux/page_cgroup.h>
+#include <linux/export.h>
 
 #include <asm/pgtable.h>
 
@@ -42,6 +45,7 @@ struct address_space swapper_space = {
 	.i_mmap_nonlinear = LIST_HEAD_INIT(swapper_space.i_mmap_nonlinear),
 	.backing_dev_info = &swap_backing_dev_info,
 };
+EXPORT_SYMBOL_GPL(swapper_space);
 
 #define INC_CACHE_INFO(x)	do { swap_cache_info.x++; } while (0)
 
@@ -58,7 +62,8 @@ void show_swap_cache_info(void)
 	printk("Swap cache stats: add %lu, delete %lu, find %lu/%lu\n",
 		swap_cache_info.add_total, swap_cache_info.del_total,
 		swap_cache_info.find_success, swap_cache_info.find_total);
-	printk("Free swap  = %ldkB\n", nr_swap_pages << (PAGE_SHIFT - 10));
+	printk("Free swap  = %ldkB\n",
+		get_nr_swap_pages() << (PAGE_SHIFT - 10));
 	printk("Total swap = %lukB\n", total_swap_pages << (PAGE_SHIFT - 10));
 }
 

@@ -73,8 +73,6 @@ enum regulator_status {
  *
  * @register_ocp_notification: Register the notification for ocp.
  *
- * @set_ocp_mode: Set the operating mode for ocp.
- *
  * @set_suspend_voltage: Set the voltage for the regulator when the system
  *                       is suspended.
  * @set_suspend_enable: Mark the regulator as enabled when the system is
@@ -133,9 +131,6 @@ struct regulator_ops {
 	/* register ocp notification */
 	int (*register_ocp_notification) (struct regulator_dev *,
 			struct regulator_ocp_notification *notification);
-
-	/* set ocp mode */
-	int (*set_ocp_mode) (struct regulator_dev *, unsigned int mode);
 
 	/* the operations below are for configuration of regulator state when
 	 * its parent PMIC enters a global STANDBY/HIBERNATE state */

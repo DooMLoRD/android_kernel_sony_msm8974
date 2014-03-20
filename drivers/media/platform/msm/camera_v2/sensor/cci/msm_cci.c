@@ -1,5 +1,4 @@
 /* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -97,28 +96,10 @@ static void msm_cci_flush_queue(struct cci_device *cci_dev,
 	enum cci_i2c_master_t master)
 {
 	int32_t rc = 0;
-#if defined(CONFIG_SONY_CAM_V4L2)
-	uint8_t retry_count = 0;
-#endif
 
 	msm_camera_io_w(1 << master, cci_dev->base + CCI_HALT_REQ_ADDR);
-#if defined(CONFIG_SONY_CAM_V4L2)
-	retry_count = 4;
-	do {
-		rc = wait_for_completion_interruptible_timeout(
-			&cci_dev->cci_master_info[master].reset_complete,
-			CCI_TIMEOUT);
-		retry_count--;
-		if (rc != -ERESTARTSYS)
-			break;
-		pr_debug("%s: wait_event interrupted by signal, count = %d",
-				__func__, retry_count);
-		msleep(20);
-	} while (retry_count > 0);
-#else
 	rc = wait_for_completion_interruptible_timeout(
 		&cci_dev->cci_master_info[master].reset_complete, CCI_TIMEOUT);
-#endif
 	if (rc < 0) {
 		pr_err("%s:%d wait failed\n", __func__, __LINE__);
 	} else if (rc == 0) {
@@ -136,24 +117,9 @@ static void msm_cci_flush_queue(struct cci_device *cci_dev,
 				cci_dev->base + CCI_RESET_CMD_ADDR);
 
 		/* wait for reset done irq */
-#if defined(CONFIG_SONY_CAM_V4L2)
-		retry_count = 4;
-		do {
-			rc = wait_for_completion_interruptible_timeout(
-				&cci_dev->cci_master_info[master].reset_complete
-				, CCI_TIMEOUT);
-			retry_count--;
-			if (rc != -ERESTARTSYS)
-				break;
-			pr_debug("%s: wait_event interrupted by signal, count = %d",
-					__func__, retry_count);
-			msleep(20);
-		} while (retry_count > 0);
-#else
 		rc = wait_for_completion_interruptible_timeout(
 			&cci_dev->cci_master_info[master].reset_complete,
 			CCI_TIMEOUT);
-#endif
 		if (rc <= 0)
 			pr_err("%s:%d wait failed %d\n", __func__, __LINE__,
 				rc);
@@ -169,9 +135,6 @@ static int32_t msm_cci_validate_queue(struct cci_device *cci_dev,
 	int32_t rc = 0;
 	uint32_t read_val = 0;
 	uint32_t reg_offset = master * 0x200 + queue * 0x100;
-#if defined(CONFIG_SONY_CAM_V4L2)
-	uint8_t retry_count = 0;
-#endif
 	read_val = msm_camera_io_r(cci_dev->base +
 		CCI_I2C_M0_Q0_CUR_WORD_CNT_ADDR + reg_offset);
 	CDBG("%s line %d CCI_I2C_M0_Q0_CUR_WORD_CNT_ADDR %d len %d max %d\n",
@@ -195,23 +158,8 @@ static int32_t msm_cci_validate_queue(struct cci_device *cci_dev,
 		msm_camera_io_w(reg_val, cci_dev->base + CCI_QUEUE_START_ADDR);
 		CDBG("%s line %d wait_for_completion_interruptible\n",
 			__func__, __LINE__);
-#if defined(CONFIG_SONY_CAM_V4L2)
-		retry_count = 4;
-		do {
-			rc = wait_for_completion_interruptible_timeout(
-				&cci_dev->cci_master_info[master].reset_complete
-				, CCI_TIMEOUT);
-			retry_count--;
-			if (rc != -ERESTARTSYS)
-				break;
-			pr_debug("%s: wait_event interrupted by signal, count = %d",
-					__func__, retry_count);
-			msleep(20);
-		} while (retry_count > 0);
-#else
 		rc = wait_for_completion_interruptible_timeout(&cci_dev->
 			cci_master_info[master].reset_complete, CCI_TIMEOUT);
-#endif
 		if (rc <= 0) {
 			pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
 				 __func__, __LINE__);
@@ -361,9 +309,6 @@ static int32_t msm_cci_i2c_read(struct v4l2_subdev *sd,
 	enum cci_i2c_queue_t queue = QUEUE_1;
 	struct cci_device *cci_dev = NULL;
 	struct msm_camera_cci_i2c_read_cfg *read_cfg = NULL;
-#if defined(CONFIG_SONY_CAM_V4L2)
-	uint8_t retry_count = 0;
-#endif
 	CDBG("%s line %d\n", __func__, __LINE__);
 	cci_dev = v4l2_get_subdevdata(sd);
 	master = c_ctrl->cci_info->cci_i2c_master;
@@ -458,22 +403,8 @@ static int32_t msm_cci_i2c_read(struct v4l2_subdev *sd,
 	msm_camera_io_w(val, cci_dev->base + CCI_QUEUE_START_ADDR);
 	CDBG("%s:%d E wait_for_completion_interruptible_timeout\n", __func__,
 		__LINE__);
-#if defined(CONFIG_SONY_CAM_V4L2)
-	retry_count = 4;
-	do {
-		rc = wait_for_completion_interruptible_timeout(&cci_dev->
-			cci_master_info[master].reset_complete, CCI_TIMEOUT);
-		retry_count--;
-		if (rc != -ERESTARTSYS)
-			break;
-		pr_debug("%s: wait_event interrupted by signal, count = %d",
-				__func__, retry_count);
-		msleep(20);
-	} while (retry_count > 0);
-#else
 	rc = wait_for_completion_interruptible_timeout(&cci_dev->
 		cci_master_info[master].reset_complete, CCI_TIMEOUT);
-#endif
 	if (rc <= 0) {
 		pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
 			 __func__, __LINE__);
@@ -593,9 +524,6 @@ static int32_t msm_cci_i2c_write(struct v4l2_subdev *sd,
 	uint32_t val;
 	enum cci_i2c_master_t master;
 	enum cci_i2c_queue_t queue = QUEUE_0;
-#if defined(CONFIG_SONY_CAM_V4L2)
-	uint8_t retry_count = 0;
-#endif
 	cci_dev = v4l2_get_subdevdata(sd);
 	if (c_ctrl->cci_info->cci_i2c_master > MASTER_MAX
 			|| c_ctrl->cci_info->cci_i2c_master < 0) {
@@ -680,22 +608,8 @@ static int32_t msm_cci_i2c_write(struct v4l2_subdev *sd,
 
 	CDBG("%s:%d E wait_for_completion_interruptible\n",
 		__func__, __LINE__);
-#if defined(CONFIG_SONY_CAM_V4L2)
-	retry_count = 4;
-	do {
-		rc = wait_for_completion_interruptible_timeout(&cci_dev->
-			cci_master_info[master].reset_complete, CCI_TIMEOUT);
-		retry_count--;
-		if (rc != -ERESTARTSYS)
-			break;
-		pr_debug("%s: wait_event interrupted by signal, count = %d",
-				__func__, retry_count);
-		msleep(20);
-	} while (retry_count > 0);
-#else
 	rc = wait_for_completion_interruptible_timeout(&cci_dev->
 		cci_master_info[master].reset_complete, CCI_TIMEOUT);
-#endif
 	if (rc <= 0) {
 		pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
 			 __func__, __LINE__);
@@ -717,7 +631,11 @@ ERROR:
 static int msm_cci_subdev_g_chip_ident(struct v4l2_subdev *sd,
 			struct v4l2_dbg_chip_ident *chip)
 {
-	BUG_ON(!chip);
+	if (!chip) {
+		pr_err("%s:%d: NULL pointer supplied for chip ident\n",
+			 __func__, __LINE__);
+		return -EINVAL;
+	}
 	chip->ident = V4L2_IDENT_CCI;
 	chip->revision = 0;
 	return 0;
@@ -736,9 +654,6 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 	int32_t rc = 0;
 	struct cci_device *cci_dev;
 	enum cci_i2c_master_t master;
-#if defined(CONFIG_SONY_CAM_V4L2)
-	uint8_t retry_count = 0;
-#endif
 	cci_dev = v4l2_get_subdevdata(sd);
 
 	if (!cci_dev || !c_ctrl) {
@@ -798,24 +713,9 @@ static int32_t msm_cci_init(struct v4l2_subdev *sd,
 	cci_dev->cci_master_info[MASTER_0].reset_pending = TRUE;
 	msm_camera_io_w(CCI_RESET_CMD_RMSK, cci_dev->base + CCI_RESET_CMD_ADDR);
 	msm_camera_io_w(0x1, cci_dev->base + CCI_RESET_CMD_ADDR);
-#if defined(CONFIG_SONY_CAM_V4L2)
-	retry_count = 4;
-	do {
-		rc = wait_for_completion_interruptible_timeout(
-			&cci_dev->cci_master_info[MASTER_0].reset_complete,
-			CCI_TIMEOUT);
-		retry_count--;
-		if (rc != -ERESTARTSYS)
-			break;
-		pr_debug("%s: wait_event interrupted by signal, count = %d",
-				__func__, retry_count);
-		msleep(20);
-	} while (retry_count > 0);
-#else
 	rc = wait_for_completion_interruptible_timeout(
 		&cci_dev->cci_master_info[MASTER_0].reset_complete,
 		CCI_TIMEOUT);
-#endif
 	if (rc <= 0) {
 		pr_err("%s: wait_for_completion_interruptible_timeout %d\n",
 			 __func__, __LINE__);

@@ -205,6 +205,8 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
+		/* null terminate the string */
+		nat_mem.dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
 
 		if (allocate_nat_device(&nat_mem)) {
 			retval = -EFAULT;
@@ -963,7 +965,7 @@ static int ipa_update_connections_info(struct device_node *node,
 	enum ipa_pipe_mem_type mem_type;
 
 	if (!pipe_connection || !node)
-		goto err;
+		return -EINVAL;
 
 	key = "qcom,src-bam-physical-address";
 	rc = of_property_read_u32(node, key, &val);

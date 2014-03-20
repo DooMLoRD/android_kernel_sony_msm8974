@@ -20,6 +20,7 @@
 			reg = <0x1700 0x100>;
 			regulator-min-microvolt = <900000>;
 			regulator-max-microvolt = <1275000>;
+			qcom,mode = "auto";
 		};
 	};
 };
@@ -35,11 +36,11 @@
 		interrupts = <0 15 0>;
 		regulator-name = "apc_corner";
 		regulator-min-microvolt = <1>;
-		regulator-max-microvolt = <3>;
+		regulator-max-microvolt = <12>;
 
-		qcom,pvs-fuse-redun-sel = <22 24 3 2>;
-		qcom,pvs-fuse = <22 6 5>;
-		qcom,pvs-fuse-redun = <22 27 5>;
+		qcom,pvs-fuse-redun-sel = <22 24 3 2 0>;
+		qcom,pvs-fuse = <22 6 5 0>;
+		qcom,pvs-fuse-redun = <22 27 5 0>;
 
 		qcom,pvs-init-voltage = <1275000 1275000 1275000 1275000 1275000
 					1275000 1260000 1245000 1230000 1215000
@@ -50,7 +51,7 @@
 					1275000 1275000>;
 		qcom,pvs-corner-ceiling-slow = <1050000 1150000 1275000>;
 		qcom,pvs-corner-ceiling-nom  = <1050000 1075000 1200000>;
-		qcom,pvs-corner-ceiling-fast = <1050000 1050000 1140000>;
+		qcom,pvs-corner-ceiling-fast = <1050000 1050000 1100000>;
 		vdd-apc-supply = <&pm8226_s2>;
 
 		vdd-mx-supply = <&pm8226_l3_ao>;
@@ -71,17 +72,34 @@
 		qcom,vdd-apc-step-down-limit = <1>;
 		qcom,cpr-apc-volt-step = <5000>;
 
-		qcom,cpr-fuse-redun-sel = <138 57 1 1>;
-		qcom,cpr-fuse-row = <138>;
+		qcom,cpr-fuse-redun-sel = <138 57 1 1 0>;
+		qcom,cpr-fuse-row = <138 0>;
 		qcom,cpr-fuse-bp-cpr-disable = <36>;
 		qcom,cpr-fuse-bp-scheme = <37>;
 		qcom,cpr-fuse-target-quot = <24 12 0>;
 		qcom,cpr-fuse-ro-sel = <54 38 41>;
-		qcom,cpr-fuse-redun-row = <139>;
+		qcom,cpr-fuse-redun-row = <139 0>;
 		qcom,cpr-fuse-redun-target-quot = <24 12 0>;
 		qcom,cpr-fuse-redun-ro-sel = <46 36 39>;
 
 		qcom,cpr-enable;
+		qcom,cpr-fuse-cond-min-volt-sel = <54 42 6 7 1>;
+		qcom,cpr-cond-min-voltage = <1140000>;
+		qcom,cpr-fuse-uplift-sel = <22 53 1 0 0>;
+		qcom,cpr-uplift-voltage = <50000>;
+		qcom,cpr-uplift-quotient = <0 0 120>;
+		qcom,cpr-uplift-max-volt = <1350000>;
+		qcom,cpr-uplift-speed-bin = <1>;
+		qcom,speed-bin-fuse-sel = <22 0 3 0>;
+		qcom,cpr-corner-map = <1 1 2 2 3 3 3 3 3 3 3 3>;
+		qcom,cpr-quot-adjust-table =
+					<1 5 450>,
+					<1 6 375>,
+					<1 7 300>,
+					<1 8 225>,
+					<1 9 187>,
+					<1 10 150>,
+					<1 11 75>;
 	};
 };
 

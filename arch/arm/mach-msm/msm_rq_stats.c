@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,7 +39,6 @@
 
 struct notifier_block freq_transition;
 struct notifier_block cpu_hotplug;
-struct notifier_block freq_policy;
 
 struct cpu_load_data {
 	cputime64_t prev_cpu_idle;
@@ -227,22 +226,6 @@ static int system_suspend_handler(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static int freq_policy_handler(struct notifier_block *nb,
-			unsigned long event, void *data)
-{
-	struct cpufreq_policy *policy = data;
-	struct cpu_load_data *this_cpu = &per_cpu(cpuload, policy->cpu);
-
-	if (event != CPUFREQ_NOTIFY)
-		goto out;
-
-	this_cpu->policy_max = policy->max;
-
-	pr_debug("Policy max changed from %u to %u, event %lu\n",
-			this_cpu->policy_max, policy->max, event);
-out:
-	return NOTIFY_DONE;
-}
 
 static ssize_t hotplug_disable_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
@@ -393,11 +376,12 @@ static int __init msm_rq_stats_init(void)
 	int ret;
 	int i;
 	struct cpufreq_policy cpu_policy;
+
+#ifndef CONFIG_SMP
 	/* Bail out if this is not an SMP Target */
-	if (!is_smp()) {
-		rq_info.init = 0;
-		return -ENOSYS;
-	}
+	rq_info.init = 0;
+	return -ENOSYS;
+#endif
 
 	rq_wq = create_singlethread_workqueue("rq_stats");
 	BUG_ON(!rq_wq);
@@ -423,12 +407,9 @@ static int __init msm_rq_stats_init(void)
 	}
 	freq_transition.notifier_call = cpufreq_transition_handler;
 	cpu_hotplug.notifier_call = cpu_hotplug_handler;
-	freq_policy.notifier_call = freq_policy_handler;
 	cpufreq_register_notifier(&freq_transition,
 					CPUFREQ_TRANSITION_NOTIFIER);
 	register_hotcpu_notifier(&cpu_hotplug);
-	cpufreq_register_notifier(&freq_policy,
-					CPUFREQ_POLICY_NOTIFIER);
 
 	return ret;
 }
@@ -436,11 +417,11 @@ late_initcall(msm_rq_stats_init);
 
 static int __init msm_rq_stats_early_init(void)
 {
+#ifndef CONFIG_SMP
 	/* Bail out if this is not an SMP Target */
-	if (!is_smp()) {
-		rq_info.init = 0;
-		return -ENOSYS;
-	}
+	rq_info.init = 0;
+	return -ENOSYS;
+#endif
 
 	pm_notifier(system_suspend_handler, 0);
 	return 0;

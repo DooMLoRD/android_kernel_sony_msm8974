@@ -862,6 +862,7 @@ struct vidc_frame_data {
 	u32 mark_target;
 	u32 mark_data;
 	u32 clnt_data;
+	u32 extradata_size;
 };
 
 struct vidc_seq_hdr {
@@ -1129,6 +1130,7 @@ struct hfi_device {
 		u32 *max_width, u32 *max_height);
 	int (*session_clean)(void *sess);
 	int (*get_core_capabilities)(void);
+	int (*power_enable)(void *dev);
 };
 
 typedef void (*hfi_cmd_response_callback) (enum command_response cmd,
