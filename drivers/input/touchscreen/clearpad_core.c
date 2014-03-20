@@ -1,7 +1,7 @@
 /* linux/drivers/input/touchscreen/clearpad_core.c
  *
  * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
- * Copyright (C) 2012-2013 Sony Mobile Communications AB.
+ * Copyright (C) 2012-2014 Sony Mobile Communications AB.
  *
  * Author: Courtney Cavin <courtney.cavin@sonyericsson.com>
  *         Yusuke Yoshimura <Yusuke.Yoshimura@sonyericsson.com>
@@ -46,7 +46,7 @@
 #define SYNAPTICS_MAX_CTRL_VALUE		32
 #define SYNAPTICS_MAX_Z_VALUE			255
 /* Todo: Consider F11 */
-#define SYNAPTICS_MAX_W_VALUE			254
+#define SYNAPTICS_MAX_W_VALUE			15
 #define SYNAPTICS_PDT_START			0xEF
 #define SYNAPTICS_SIZE_OF_FD			6
 #define SYNAPTICS_PAGE_SELECT_OFFSET		0xFF
@@ -456,8 +456,13 @@ struct synaptics_clearpad {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs;
 #endif
+	u32 num_sensor_rx;
+	u32 num_sensor_tx;
 	u32 pen_enabled;
 	u32 glove_enabled;
+	u32 touch_pressure_enabled;
+	u32 touch_size_enabled;
+	u32 touch_orientation_enabled;
 	unsigned long ew_timeout;
 	struct delayed_work wd_poll_work;
 	int wd_poll_t_jf;
@@ -2002,14 +2007,21 @@ static void synaptics_funcarea_initialize(struct synaptics_clearpad *this)
 			input_set_abs_params(this->input, ABS_MT_POSITION_Y,
 					     pointer_area.y1,
 					     pointer_area.y2, 0, 0);
-			input_set_abs_params(this->input, ABS_MT_PRESSURE,
-					0, SYNAPTICS_MAX_Z_VALUE, 0, 0);
-			input_set_abs_params(this->input, ABS_MT_TOUCH_MAJOR,
-					0, SYNAPTICS_MAX_W_VALUE + 1, 0, 0);
-			input_set_abs_params(this->input, ABS_MT_TOUCH_MINOR,
-					0, SYNAPTICS_MAX_W_VALUE + 1, 0, 0);
-			input_set_abs_params(this->input, ABS_MT_ORIENTATION,
-					-1, 1, 0, 0);
+			if (this->touch_pressure_enabled)
+				input_set_abs_params(this->input,
+					ABS_MT_PRESSURE, 0,
+					SYNAPTICS_MAX_Z_VALUE, 0, 0);
+			if (this->touch_size_enabled) {
+				input_set_abs_params(this->input,
+					ABS_MT_TOUCH_MAJOR, 0,
+					SYNAPTICS_MAX_W_VALUE + 1, 0, 0);
+				input_set_abs_params(this->input,
+					ABS_MT_TOUCH_MINOR, 0,
+					SYNAPTICS_MAX_W_VALUE + 1, 0, 0);
+			}
+			if (this->touch_orientation_enabled)
+				input_set_abs_params(this->input,
+					ABS_MT_ORIENTATION, -1, 1, 0, 0);
 			input_set_abs_params(this->input, ABS_MT_TOOL_TYPE,
 					MT_TOOL_FINGER, MT_TOOL_FINGER, 0, 0);
 
@@ -2021,15 +2033,20 @@ static void synaptics_funcarea_initialize(struct synaptics_clearpad *this)
 			input_set_abs_params(this->input_pen, ABS_MT_POSITION_Y,
 					     pointer_area.y1,
 					     pointer_area.y2, 0, 0);
-			input_set_abs_params(this->input_pen, ABS_MT_PRESSURE,
-					0, SYNAPTICS_MAX_Z_VALUE, 0, 0);
-			input_set_abs_params(this->input_pen,
+			if (this->touch_pressure_enabled)
+				input_set_abs_params(this->input_pen,
+					ABS_MT_PRESSURE, 0,
+					SYNAPTICS_MAX_Z_VALUE, 0, 0);
+			if (this->touch_size_enabled) {
+				input_set_abs_params(this->input_pen,
 					ABS_MT_TOUCH_MAJOR, 0,
 					SYNAPTICS_MAX_W_VALUE + 1, 0, 0);
-			input_set_abs_params(this->input_pen,
+				input_set_abs_params(this->input_pen,
 					ABS_MT_TOUCH_MINOR, 0,
 					SYNAPTICS_MAX_W_VALUE + 1, 0, 0);
-			input_set_abs_params(this->input_pen,
+			}
+			if (this->touch_orientation_enabled)
+				input_set_abs_params(this->input_pen,
 					ABS_MT_ORIENTATION, -1, 1, 0, 0);
 			input_set_abs_params(this->input_pen, ABS_MT_TOOL_TYPE,
 					0, MT_TOOL_PEN, 0, 0);
@@ -2151,10 +2168,14 @@ static void synaptics_funcarea_down(struct synaptics_clearpad *this,
 		input_mt_report_slot_state(idev, cur->tool, true);
 		input_report_abs(idev, ABS_MT_POSITION_X, cur->x);
 		input_report_abs(idev, ABS_MT_POSITION_Y, cur->y);
-		input_report_abs(idev, ABS_MT_PRESSURE, cur->z);
-		input_report_abs(idev, ABS_MT_TOUCH_MAJOR, touch_major);
-		input_report_abs(idev, ABS_MT_TOUCH_MINOR, touch_minor);
-		input_report_abs(idev, ABS_MT_ORIENTATION,
+		if (this->touch_pressure_enabled)
+			input_report_abs(idev, ABS_MT_PRESSURE, cur->z);
+		if (this->touch_size_enabled) {
+			input_report_abs(idev, ABS_MT_TOUCH_MAJOR, touch_major);
+			input_report_abs(idev, ABS_MT_TOUCH_MINOR, touch_minor);
+		}
+		if (this->touch_orientation_enabled)
+			input_report_abs(idev, ABS_MT_ORIENTATION,
 				 (cur->wx > cur->wy));
 		break;
 	case SYN_FUNCAREA_BUTTON:
@@ -3302,12 +3323,32 @@ static void clearpad_touch_config_dt(struct synaptics_clearpad *this)
 {
 	struct device_node *devnode = this->bdata->of_node;
 
+	if (of_property_read_u32(devnode, "num_sensor_rx",
+		&this->num_sensor_rx))
+		dev_warn(&this->pdev->dev, "no num_sensor_rx config\n");
+
+	if (of_property_read_u32(devnode, "num_sensor_tx",
+		&this->num_sensor_tx))
+		dev_warn(&this->pdev->dev, "no num_sensor_tx config\n");
+
 	if (of_property_read_u32(devnode, "pen_enabled", &this->pen_enabled))
 		dev_warn(&this->pdev->dev, "no pen_enabled config\n");
 
 	if (of_property_read_u32(devnode, "glove_enabled",
 		&this->glove_enabled))
 		dev_warn(&this->pdev->dev, "no glove_enabled config\n");
+
+	if (of_property_read_u32(devnode, "touch_pressure_enabled",
+		&this->touch_pressure_enabled))
+		dev_warn(&this->pdev->dev, "no touch_pressure_enabled config\n");
+
+	if (of_property_read_u32(devnode, "touch_size_enabled",
+		&this->touch_size_enabled))
+		dev_warn(&this->pdev->dev, "no touch_size_enabled config\n");
+
+	if (of_property_read_u32(devnode, "touch_orientation_enabled",
+		&this->touch_orientation_enabled))
+		dev_warn(&this->pdev->dev, "no touch_orientation_enabled config\n");
 
 	if (of_property_read_u32(devnode, "preset_x_max", &this->extents.x_max))
 		dev_warn(&this->pdev->dev, "no preset_x_max config\n");
@@ -3336,10 +3377,6 @@ static int synaptics_clearpad_input_init(struct synaptics_clearpad *this,
 	set_bit(EV_ABS, idev->evbit);
 
 	set_bit(ABS_MT_TRACKING_ID, idev->absbit);
-	set_bit(ABS_MT_ORIENTATION, idev->absbit);
-	set_bit(ABS_MT_PRESSURE, idev->absbit);
-	set_bit(ABS_MT_TOUCH_MAJOR, idev->absbit);
-	set_bit(ABS_MT_TOUCH_MINOR, idev->absbit);
 	set_bit(ABS_MT_TOOL_TYPE, idev->absbit);
 
 	dev_info(&this->pdev->dev, "Touch area [%d, %d, %d, %d]\n",
@@ -3680,20 +3717,12 @@ static void synaptics_clearpad_analog_test(struct synaptics_clearpad *this,
 		num_rx = buf[0];
 		num_tx = buf[1];
 	} else if (f_analog == SYN_F54_ANALOG) {
-		if (this->chip >= SYN_CHIP_3400) {
-			rc = synaptics_read(SYNF2(this, F12_2D, CTRL,
-					SENSOR_TUNING), buf, sizeof(buf));
-			if (rc)
-				goto err_set_irq_xy;
-			num_rx = buf[12];
-			num_tx = buf[13];
+		if (this->num_sensor_rx && this->num_sensor_tx) {
+			num_rx = this->num_sensor_rx;
+			num_tx = this->num_sensor_tx;
 		} else {
-			rc = synaptics_read(this, SYNF(F11_2D, CTRL, 0x34),
-					buf, 2);
-			if (rc)
-				goto err_set_irq_xy;
-			num_rx = buf[0];
-			num_tx = buf[1];
+			dev_info(&this->pdev->dev, "Analog Test not supported\n");
+			goto err_set_irq_xy;
 		}
 	}
 

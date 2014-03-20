@@ -150,6 +150,7 @@ struct mhl_tx_ctrl {
 	struct usb_ext_notification *mhl_info;
 	bool disc_enabled;
 	struct power_supply mhl_psy;
+	struct power_supply *batt_psy;
 	bool vbus_active;
 	int current_val;
 	int max_current_val;
@@ -161,6 +162,8 @@ struct mhl_tx_ctrl {
 	uint8_t tmds_en_state;
 	bool tmds_ctrl_en;
 	bool screen_mode;
+	int screen_control;
+	struct work_struct screen_work;
 	void *hdmi_mhl_ops;
 	struct work_struct mhl_msc_send_work;
 	struct list_head list_cmd;

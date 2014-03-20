@@ -441,6 +441,11 @@ static void transfer_results(struct kgsl_device *device,
 					profile, *(ptr + buf_off++));
 			if (assigns_list == NULL) {
 				*log_ptr = (unsigned int) -1;
+
+				shared_buf_inc(profile->shared_size,
+					&profile->shared_tail,
+					SIZE_SHARED_ENTRY(cnt));
+
 				goto err;
 			} else {
 				*log_ptr = assigns_list->groupid << 16 |
@@ -666,7 +671,7 @@ static ssize_t profile_assignments_write(struct file *filep,
 	size_t size = 0;
 	char *buf, *pbuf;
 	bool remove_assignment = false;
-	int groupid, countable;
+	int groupid, countable, ret;
 
 	if (len >= PAGE_SIZE || len == 0)
 		return -EINVAL;
@@ -681,7 +686,9 @@ static ssize_t profile_assignments_write(struct file *filep,
 		goto error_unlock;
 	}
 
-	kgsl_active_count_get(device);
+	ret = kgsl_active_count_get(device);
+	if (ret)
+		return -EINVAL;
 
 	/*
 	 * When adding/removing assignments, ensure that the GPU is done with
@@ -1099,7 +1106,7 @@ void adreno_profile_preib_processing(struct kgsl_device *device,
 	if (SIZE_SHARED_ENTRY(count) >= shared_buf_available(profile))
 		goto done;
 
-	if (entry_head + SIZE_SHARED_ENTRY(count) > profile->shared_size) {
+	if (entry_head + SIZE_SHARED_ENTRY(count) >= profile->shared_size) {
 		/* entry_head would wrap, start entry_head at 0 in buffer */
 		entry_head = 0;
 		profile->shared_size = profile->shared_head;

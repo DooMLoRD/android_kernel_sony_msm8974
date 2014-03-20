@@ -336,10 +336,7 @@ static irqreturn_t wcnss_wdog_bite_irq_hdlr(int irq, void *dev_id)
 		pr_err("Ignoring wcnss bite irq, restart in progress\n");
 		return IRQ_HANDLED;
 	}
-	if (wcnss_sample_ahb_clk())
-		wcnss_log_debug_regs_on_bite();
-	else
-		pr_err("clk frequency is zero, cannot access PMU or other registers");
+	wcnss_log_debug_regs_on_bite();
 
 	drv->restart_inprogress = true;
 	restart_wcnss(drv);

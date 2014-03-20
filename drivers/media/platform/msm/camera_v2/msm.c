@@ -1,5 +1,4 @@
 /* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -342,17 +341,26 @@ int msm_create_session(unsigned int session_id, struct video_device *vdev)
 {
 	struct msm_session *session = NULL;
 
-	if (!msm_session_q)
+	if (!msm_session_q) {
+		pr_err("%s : session queue not available Line %d\n",
+				__func__, __LINE__);
 		return -ENODEV;
+	}
 
 	session = msm_queue_find(msm_session_q, struct msm_session,
 		list, __msm_queue_find_session, &session_id);
-	if (session)
+	if (session) {
+		pr_err("%s : Session not found Line %d\n",
+				__func__, __LINE__);
 		return -EINVAL;
+	}
 
 	session = kzalloc(sizeof(*session), GFP_KERNEL);
-	if (!session)
+	if (!session) {
+		pr_err("%s : Memory not available Line %d\n",
+				__func__, __LINE__);
 		return -ENOMEM;
+	}
 
 	session->session_id = session_id;
 	session->event_q.vdev = vdev;
@@ -368,17 +376,25 @@ int msm_create_command_ack_q(unsigned int session_id, unsigned int stream_id)
 	struct msm_session *session;
 	struct msm_command_ack *cmd_ack;
 
-	if (!msm_session_q)
+	if (!msm_session_q) {
+		pr_err("%s : Session queue not available Line %d\n",
+				__func__, __LINE__);
 		return -ENODEV;
+	}
 
 	session = msm_queue_find(msm_session_q, struct msm_session,
 		list, __msm_queue_find_session, &session_id);
-	if (!session)
+	if (!session) {
+		pr_err("%s : Session not found Line %d\n",
+				__func__, __LINE__);
 		return -EINVAL;
+	}
 	mutex_lock(&session->lock);
 	cmd_ack = kzalloc(sizeof(*cmd_ack), GFP_KERNEL);
 	if (!cmd_ack) {
 		mutex_unlock(&session->lock);
+		pr_err("%s : memory not available Line %d\n",
+				__func__, __LINE__);
 		return -ENOMEM;
 	}
 
@@ -439,7 +455,7 @@ static inline int __msm_sd_close_subdevs(struct msm_sd_subdev *msm_sd,
 static inline int __msm_destroy_session_streams(void *d1, void *d2)
 {
 	struct msm_stream *stream = d1;
-
+	pr_err("%s: Destroyed here due to list is not empty\n", __func__);
 	INIT_LIST_HEAD(&stream->queued_list);
 	return 0;
 }
@@ -646,9 +662,6 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	struct msm_command *cmd;
 	int session_id, stream_id;
 	unsigned long flags = 0;
-#if defined(CONFIG_SONY_CAM_V4L2)
-	uint32_t retry_count = 0;
-#endif
 
 	session_id = event_data->session_id;
 	stream_id = event_data->stream_id;
@@ -656,6 +669,8 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	spin_lock_irqsave(&msm_eventq_lock, flags);
 	if (!msm_eventq) {
 		spin_unlock_irqrestore(&msm_eventq_lock, flags);
+		pr_err("%s : msm event queue not available Line %d\n",
+				__func__, __LINE__);
 		return -ENODEV;
 	}
 	spin_unlock_irqrestore(&msm_eventq_lock, flags);
@@ -665,14 +680,19 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 	/* send to imaging server and wait for ACK */
 	session = msm_queue_find(msm_session_q, struct msm_session,
 		list, __msm_queue_find_session, &session_id);
-	if (WARN_ON(!session))
+	if (WARN_ON(!session)) {
+		pr_err("%s : session not found Line %d\n",
+				__func__, __LINE__);
 		return -EIO;
+	}
 	mutex_lock(&session->lock);
 	cmd_ack = msm_queue_find(&session->command_ack_q,
 		struct msm_command_ack, list,
 		__msm_queue_find_command_ack_q, &stream_id);
 	if (WARN_ON(!cmd_ack)) {
 		mutex_unlock(&session->lock);
+		pr_err("%s : cmd_ack not found Line %d\n",
+				__func__, __LINE__);
 		return -EIO;
 	}
 
@@ -680,29 +700,12 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 
 	if (timeout < 0) {
 		mutex_unlock(&session->lock);
+		pr_err("%s : timeout cannot be negative Line %d\n",
+				__func__, __LINE__);
 		return rc;
 	}
 
 	/* should wait on session based condition */
-#if defined(CONFIG_SONY_CAM_V4L2)
-	retry_count = 5000;
-	do {
-		rc = wait_event_interruptible_timeout(cmd_ack->wait,
-			!list_empty_careful(&cmd_ack->command_q.list),
-			msecs_to_jiffies(timeout));
-		retry_count--;
-		if (rc != -ERESTARTSYS)
-			break;
-		pr_debug("%s: wait_event interrupted by signal, count = %d",
-				__func__, retry_count);
-		msleep(20);
-	} while (retry_count > 0);
-
-	if (rc == -ERESTARTSYS) {
-		pr_err("%s: rc = %d\n", __func__, rc);
-		rc = -EINVAL;
-	}
-#else
 	do {
 		rc = wait_event_interruptible_timeout(cmd_ack->wait,
 			!list_empty_careful(&cmd_ack->command_q.list),
@@ -710,7 +713,7 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 		if (rc != -ERESTARTSYS)
 			break;
 	} while (1);
-#endif
+
 	if (list_empty_careful(&cmd_ack->command_q.list)) {
 		if (!rc) {
 			pr_err("%s: Timed out\n", __func__);
@@ -727,6 +730,8 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 		struct msm_command, list);
 	if (!cmd) {
 		mutex_unlock(&session->lock);
+		pr_err("%s : cmd dequeue failed Line %d\n",
+				__func__, __LINE__);
 		return -EINVAL;
 	}
 
@@ -734,9 +739,15 @@ int msm_post_event(struct v4l2_event *event, int timeout)
 
 	/* compare cmd_ret and event */
 	if (WARN_ON(event->type != cmd->event.type) ||
-			WARN_ON(event->id != cmd->event.id))
+			WARN_ON(event->id != cmd->event.id)) {
+		pr_err("%s : Either event type or id didnot match Line %d\n",
+				__func__, __LINE__);
+		pr_err("%s : event->type %d event->id %d\n", __func__,
+				event->type, event->id);
+		pr_err("%s : cmd->event.type %d cmd->event.id %d\n", __func__,
+				cmd->event.type, cmd->event.id);
 		rc = -EINVAL;
-
+	}
 	*event = cmd->event;
 
 	kzfree(cmd);
@@ -1024,8 +1035,10 @@ static int __devinit msm_probe(struct platform_device *pdev)
 	video_set_drvdata(pvdev->vdev, pvdev);
 
 	msm_session_q = kzalloc(sizeof(*msm_session_q), GFP_KERNEL);
-	if (WARN_ON(!msm_session_q))
-		goto v4l2_fail;
+	if (WARN_ON(!msm_session_q)) {
+		rc = -ENOMEM;
+		goto session_fail;
+	}
 
 	msm_init_queue(msm_session_q);
 	spin_lock_init(&msm_eventq_lock);
@@ -1033,6 +1046,8 @@ static int __devinit msm_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&ordered_sd_list);
 	goto probe_end;
 
+session_fail:
+	video_unregister_device(pvdev->vdev);
 v4l2_fail:
 	v4l2_device_unregister(pvdev->vdev->v4l2_dev);
 register_fail:

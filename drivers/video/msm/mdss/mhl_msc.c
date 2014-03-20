@@ -40,6 +40,7 @@ struct mhl_osd_msg {
 static struct mhl_tx_ctrl *mhl_ctrl;
 static DEFINE_MUTEX(msc_send_workqueue_mutex);
 struct workqueue_struct *scratchpad_workqueue;
+struct workqueue_struct *screen_ctrl_workqueue;
 
 static void mhl_notify_event(struct mhl_tx_ctrl *mhl_ctrl, int event);
 
@@ -662,28 +663,62 @@ int mhl_rcp_recv(struct mhl_tx_ctrl *mhl_ctrl, u8 key_code)
 	return 0;
 }
 
+
+static void mhl_screen_control_work(struct work_struct *work)
+{
+	struct mhl_tx_ctrl *mhl_ctrl = container_of
+		(work, struct mhl_tx_ctrl, screen_work);
+	bool mode;
+	int timeout = 50;
+
+	if (!mhl_ctrl)
+		return;
+
+	/* Currently, if same screen mode, no action */
+	if (mhl_ctrl->screen_control == MHL_RAP_CONTENT_ON)
+		mode = true;
+	else
+		mode = false;
+	if (mhl_ctrl->screen_mode == mode) {
+		pr_debug("%s: same screen mode\n", __func__);
+		return;
+	}
+
+	/* send power key event */
+	input_report_key(mhl_ctrl->input, KEY_VENDOR, 1);
+	input_sync(mhl_ctrl->input);
+	input_report_key(mhl_ctrl->input, KEY_VENDOR, 0);
+	input_sync(mhl_ctrl->input);
+
+	/* wait until contorl mode matches screen_mode */
+	do {
+		if (mode) {
+			if (mhl_ctrl->screen_mode == true)
+				break;
+		} else {
+			if (mhl_ctrl->screen_mode == false)
+				break;
+		}
+		msleep(20);
+	} while (--timeout);
+	if (!timeout)
+		pr_warn("screen_mode change timeout!\n");
+}
+
 static int mhl_rap_action(struct mhl_tx_ctrl *mhl_ctrl, u8 action_code)
 {
 	switch (action_code) {
 	case MHL_RAP_CONTENT_ON:
-		if (!mhl_ctrl->tmds_en_state)
-			mhl_tmds_ctrl(mhl_ctrl, TMDS_ENABLE);
+		mhl_tmds_ctrl(mhl_ctrl, TMDS_ENABLE);
+		mhl_drive_hpd(mhl_ctrl, HPD_UP);
+		mhl_ctrl->screen_control = MHL_RAP_CONTENT_ON;
+		queue_work(screen_ctrl_workqueue, &mhl_ctrl->screen_work);
 		break;
 	case MHL_RAP_CONTENT_OFF:
-		if (mhl_ctrl->tmds_en_state && mhl_ctrl->screen_mode) {
-			mhl_drive_hpd(mhl_ctrl, HPD_DOWN);
-			mhl_tmds_ctrl(mhl_ctrl, TMDS_DISABLE);
-			/* NACK any RAP call until change to screen on */
-			mhl_ctrl->screen_mode = false;
-			/*
-			 * instead of only disabling tmds
-			 * send power button press - CONTENT_OFF
-			 */
-			input_report_key(mhl_ctrl->input, KEY_VENDOR, 1);
-			input_sync(mhl_ctrl->input);
-			input_report_key(mhl_ctrl->input, KEY_VENDOR, 0);
-			input_sync(mhl_ctrl->input);
-		}
+		mhl_drive_hpd(mhl_ctrl, HPD_DOWN);
+		mhl_tmds_ctrl(mhl_ctrl, TMDS_DISABLE);
+		mhl_ctrl->screen_control = MHL_RAP_CONTENT_OFF;
+		queue_work(screen_ctrl_workqueue, &mhl_ctrl->screen_work);
 		break;
 	default:
 		break;
@@ -699,11 +734,8 @@ static int mhl_rap_recv(struct mhl_tx_ctrl *mhl_ctrl, u8 action_code)
 	case MHL_RAP_POLL:
 	case MHL_RAP_CONTENT_ON:
 	case MHL_RAP_CONTENT_OFF:
-		if (mhl_ctrl->screen_mode) {
-			mhl_rap_action(mhl_ctrl, action_code);
-			error_code = MHL_RAPK_NO_ERROR;
-		} else
-			error_code = MHL_RAPK_UNSUPPORTED_ACTION_CODE;
+		mhl_rap_action(mhl_ctrl, action_code);
+		error_code = MHL_RAPK_NO_ERROR;
 		break;
 	default:
 		error_code = MHL_RAPK_UNRECOGNIZED_ACTION_CODE;
@@ -1030,6 +1062,10 @@ int mhl_msc_init(struct mhl_tx_ctrl *mhl_ctrl)
 
 	scratchpad_workqueue = create_singlethread_workqueue("mhl_scratchpad");
 	INIT_WORK(&mhl_ctrl->scratchpad_work, mhl_scratchpad_send_work);
+
+	screen_ctrl_workqueue = create_singlethread_workqueue
+					("mhl_screencontrol");
+	INIT_WORK(&mhl_ctrl->screen_work, mhl_screen_control_work);
 
 	return 0;
 }

@@ -404,16 +404,24 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 	pinfo = &pdata->panel_info;
 
 #ifndef CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL
-	ret = mdss_dsi_panel_power_on(pdata, 1);
+	ret = msm_dss_enable_vreg(ctrl_pdata->power_data.vreg_config,
+				ctrl_pdata->power_data.num_vreg, 1);
+	if (ret) {
+		pr_err("%s:Failed to enable vregs. rc=%d\n", __func__, ret);
+		return ret;
+	}
 #else
 	ret = ctrl_pdata->spec_pdata->panel_power_on(pdata, 1);
-#endif	/* CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL */
 	if (ret) {
 		pr_err("%s: Panel power on failed\n", __func__);
 		return ret;
 	}
+#endif	/* CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL */
 
 	pdata->panel_info.panel_power_on = 1;
+
+	if (!pdata->panel_info.mipi.lp11_init)
+		mdss_dsi_panel_reset(pdata, 1);
 
 	ret = mdss_dsi_enable_bus_clocks(ctrl_pdata);
 	if (ret) {
@@ -424,6 +432,7 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 #else
 		ret = ctrl_pdata->spec_pdata->panel_power_on(pdata, 0);
 #endif  /* CONFIG_FB_MSM_MDSS_SPECIFIC_PANEL */
+		pdata->panel_info.panel_power_on = 0;
 		return ret;
 	}
 
@@ -503,6 +512,16 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 
 	mdss_dsi_sw_reset(pdata);
 	mdss_dsi_host_init(mipi, pdata);
+
+	/*
+	 * Issue hardware reset line after enabling the DSI clocks and data
+	 * data lanes for LP11 init
+	 */
+	if (pdata->panel_info.mipi.lp11_init)
+		mdss_dsi_panel_reset(pdata, 1);
+
+	if (pdata->panel_info.mipi.init_delay)
+		usleep(pdata->panel_info.mipi.init_delay);
 
 	if (mipi->force_clk_lane_hs) {
 		u32 tmp;
@@ -812,6 +831,21 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 	return rc;
 }
 
+static struct device_node *mdss_dsi_pref_prim_panel(
+		struct platform_device *pdev)
+{
+	struct device_node *dsi_pan_node = NULL;
+
+	pr_debug("%s:%d: Select primary panel from dt\n",
+					__func__, __LINE__);
+	dsi_pan_node = of_parse_phandle(pdev->dev.of_node,
+					"qcom,dsi-pref-prim-pan", 0);
+	if (!dsi_pan_node)
+		pr_err("%s:can't find panel phandle\n", __func__);
+
+	return dsi_pan_node;
+}
+
 /**
  * mdss_dsi_find_panel_of_node(): find device node of dsi panel
  * @pdev: platform_device of the dsi ctrl node
@@ -839,14 +873,7 @@ static struct device_node *mdss_dsi_find_panel_of_node(
 		/* no panel cfg chg, parse dt */
 		pr_debug("%s:%d: no cmd line cfg present\n",
 			 __func__, __LINE__);
-		dsi_pan_node = of_parse_phandle(
-			pdev->dev.of_node,
-			"qcom,dsi-pref-prim-pan", 0);
-		if (!dsi_pan_node) {
-			pr_err("%s:can't find panel phandle\n",
-			       __func__);
-			return NULL;
-		}
+		dsi_pan_node = mdss_dsi_pref_prim_panel(pdev);
 	} else {
 		if (panel_cfg[0] == '0') {
 			pr_debug("%s:%d: DSI ctrl 1\n", __func__, __LINE__);
@@ -879,11 +906,12 @@ static struct device_node *mdss_dsi_find_panel_of_node(
 		dsi_pan_node = of_find_node_by_name(mdss_node,
 						    panel_name);
 		if (!dsi_pan_node) {
-			pr_err("%s: invalid pan node\n",
+			pr_err("%s: invalid pan node, selecting prim panel\n",
 			       __func__);
-			return NULL;
+			dsi_pan_node = mdss_dsi_pref_prim_panel(pdev);
 		}
 	}
+
 	return dsi_pan_node;
 }
 
@@ -1410,6 +1438,7 @@ int dsi_panel_device_register(struct device_node *pan_node,
 
 	ctrl_pdata->panel_data.intf_ready = mdss_dsi_intf_ready;
 	ctrl_pdata->panel_data.event_handler = mdss_dsi_event_handler;
+	ctrl_pdata->check_status = mdss_dsi_bta_status_check;
 	ctrl_pdata->panel_data.detect = spec_pdata->detect;
 	ctrl_pdata->panel_data.update_panel = spec_pdata->update_panel;
 	ctrl_pdata->panel_data.panel_pdev = ctrl_pdev;

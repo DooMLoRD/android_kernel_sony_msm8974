@@ -2,6 +2,7 @@
  *  linux/drivers/mmc/host/sdhci.c - Secure Digital Host Controller Interface driver
  *
  *  Copyright (C) 2005-2008 Pierre Ossman, All Rights Reserved.
+ *  Copyright (c) 2014 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1446,35 +1447,6 @@ static int sdhci_notify_load(struct mmc_host *mmc, enum mmc_load state)
 	return err;
 }
 
-static void sdhci_pre_req(struct mmc_host *mmc, struct mmc_request *mrq,
-			  bool is_first_req)
-{
-	struct sdhci_host *host = mmc_priv(mmc);
-
-	if (mrq->data->host_cookie) {
-		mrq->data->host_cookie = 0;
-		return;
-	}
-
-	if (host->flags & SDHCI_REQ_USE_DMA)
-		if (sdhci_pre_dma_transfer(host, mrq->data, &host->next_data) < 0)
-			mrq->data->host_cookie = 0;
-}
-
-static void sdhci_post_req(struct mmc_host *mmc, struct mmc_request *mrq,
-			   int err)
-{
-	struct sdhci_host *host = mmc_priv(mmc);
-	struct mmc_data *data = mrq->data;
-
-	if (host->flags & SDHCI_REQ_USE_DMA) {
-		dma_unmap_sg(mmc_dev(host->mmc), data->sg, data->sg_len,
-			     (data->flags & MMC_DATA_WRITE) ?
-			     DMA_TO_DEVICE : DMA_FROM_DEVICE);
-		data->host_cookie = 0;
-	}
-}
-
 static bool sdhci_check_state(struct sdhci_host *host)
 {
 	struct mmc_host *mmc = host->mmc;
@@ -1492,6 +1464,7 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	struct sdhci_host *host;
 	bool present;
 	unsigned long flags;
+	u32 tuning_opcode;
 
 	host = mmc_priv(mmc);
 
@@ -1548,12 +1521,19 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		 */
 		if ((host->flags & SDHCI_NEEDS_RETUNING) &&
 		    !(present_state & (SDHCI_DOING_WRITE | SDHCI_DOING_READ))) {
-			spin_unlock_irqrestore(&host->lock, flags);
-			sdhci_execute_tuning(mmc, mrq->cmd->opcode);
-			spin_lock_irqsave(&host->lock, flags);
+			if (mmc->card) {
+				/* eMMC uses cmd21 but sd and sdio use cmd19 */
+				tuning_opcode =
+					mmc->card->type == MMC_TYPE_MMC ?
+					MMC_SEND_TUNING_BLOCK_HS200 :
+					MMC_SEND_TUNING_BLOCK;
+				spin_unlock_irqrestore(&host->lock, flags);
+				sdhci_execute_tuning(mmc, tuning_opcode);
+				spin_lock_irqsave(&host->lock, flags);
 
-			/* Restore original mmc_request structure */
-			host->mrq = mrq;
+				/* Restore original mmc_request structure */
+				host->mrq = mrq;
+			}
 		}
 
 		if (mrq->sbc && !(host->flags & SDHCI_AUTO_CMD23))
@@ -1571,6 +1551,7 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 	unsigned long flags;
 	int vdd_bit = -1;
 	u8 ctrl;
+	int ret;
 
 	mutex_lock(&host->ios_mutex);
 	if (host->flags & SDHCI_DEVICE_DEAD) {
@@ -1583,6 +1564,29 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 	if (ios->clock)
 		sdhci_set_clock(host, ios->clock);
 
+	/*
+	 * The controller clocks may be off during power-up and we may end up
+	 * enabling card clock before giving power to the card. Hence, during
+	 * MMC_POWER_UP enable the controller clock and turn-on the regulators.
+	 * The mmc_power_up would provide the necessary delay before turning on
+	 * the clocks to the card.
+	 */
+	if (ios->power_mode & MMC_POWER_UP) {
+		if (host->ops->enable_controller_clock) {
+			ret = host->ops->enable_controller_clock(host);
+			if (ret) {
+				pr_err("%s: enabling controller clock: failed: %d\n",
+				       mmc_hostname(host->mmc), ret);
+			} else {
+				vdd_bit = sdhci_set_power(host, ios->vdd);
+
+				if (host->vmmc && vdd_bit != -1)
+					mmc_regulator_set_ocr(host->mmc,
+							      host->vmmc,
+							      vdd_bit);
+			}
+		}
+	}
 	spin_lock_irqsave(&host->lock, flags);
 	if (!host->clock) {
 		spin_unlock_irqrestore(&host->lock, flags);
@@ -1591,14 +1595,16 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 	}
 	spin_unlock_irqrestore(&host->lock, flags);
 
-	if (ios->power_mode & (MMC_POWER_UP | MMC_POWER_ON))
+	if (!host->ops->enable_controller_clock && (ios->power_mode &
+						    (MMC_POWER_UP |
+						     MMC_POWER_ON))) {
 		vdd_bit = sdhci_set_power(host, ios->vdd);
 
-	if (host->vmmc && vdd_bit != -1)
-		mmc_regulator_set_ocr(host->mmc, host->vmmc, vdd_bit);
+		if (host->vmmc && vdd_bit != -1)
+			mmc_regulator_set_ocr(host->mmc, host->vmmc, vdd_bit);
+	}
 
 	spin_lock_irqsave(&host->lock, flags);
-
 	if (host->ops->platform_send_init_74_clocks)
 		host->ops->platform_send_init_74_clocks(host, ios->power_mode);
 
@@ -2270,8 +2276,6 @@ static unsigned int sdhci_get_xfer_remain(struct mmc_host *mmc)
 }
 
 static const struct mmc_host_ops sdhci_ops = {
-	.pre_req	= sdhci_pre_req,
-	.post_req	= sdhci_post_req,
 	.request	= sdhci_request,
 	.set_ios	= sdhci_set_ios,
 	.get_ro		= sdhci_get_ro,
@@ -3212,8 +3216,12 @@ int sdhci_add_host(struct sdhci_host *host)
 	if ((host->version >= SDHCI_SPEC_300) &&
 	    ((host->flags & SDHCI_USE_ADMA) ||
 	     !(host->flags & SDHCI_USE_SDMA))) {
-		host->flags |= SDHCI_AUTO_CMD23;
-		DBG("%s: Auto-CMD23 available\n", mmc_hostname(mmc));
+		if (mmc->caps & MMC_CAP_NONREMOVABLE) {
+			host->flags |= SDHCI_AUTO_CMD23;
+			DBG("%s: Auto-CMD23 available\n", mmc_hostname(mmc));
+		} else {
+			DBG("%s: Auto-CMD23 unavailable\n", mmc_hostname(mmc));
+		}
 	} else {
 		DBG("%s: Auto-CMD23 unavailable\n", mmc_hostname(mmc));
 	}

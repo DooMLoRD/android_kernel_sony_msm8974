@@ -1,5 +1,4 @@
 /* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
- * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -220,14 +219,6 @@ int subsys_get_restart_level(struct subsys_device *dev)
 	return dev->restart_level;
 }
 EXPORT_SYMBOL(subsys_get_restart_level);
-
-void subsys_set_restart_level(struct subsys_device *dev, int new_level)
-{
-	if (new_level >= RESET_SOC && new_level < RESET_LEVEL_MAX)
-		dev->restart_level = new_level;
-	else
-		pr_err("Incorrect restart level %d\n", new_level);
-}
 
 static void subsys_set_state(struct subsys_device *subsys,
 			     enum subsys_state state)

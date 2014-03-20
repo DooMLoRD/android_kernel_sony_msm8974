@@ -2,7 +2,7 @@
  * dwc3_otg.c - DesignWare USB3 DRD Controller OTG
  *
  * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
- * Copyright (C) 2012 Sony Mobile Communications AB.
+ * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -12,9 +12,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * NOTE: This file has been modified by Sony Mobile Communications AB.
- * Modifications are licensed under the License.
  */
 
 #include <linux/module.h>
@@ -98,6 +95,19 @@ static int dwc3_otg_set_suspend(struct usb_phy *phy, int suspend)
 	}
 
 	return 0;
+}
+
+static void dwc3_otg_set_hsphy_auto_suspend(struct dwc3_otg *dotg, bool susp)
+{
+	struct dwc3 *dwc = dotg->dwc;
+	u32 reg;
+
+	reg = dwc3_readl(dwc->regs, DWC3_GUSB2PHYCFG(0));
+	if (susp)
+		reg |= DWC3_GUSB2PHYCFG_SUSPHY;
+	else
+		reg &= ~(DWC3_GUSB2PHYCFG_SUSPHY);
+	dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(0), reg);
 }
 
 /**
@@ -191,33 +201,6 @@ static int dwc3_otg_start_host(struct usb_otg *otg, int on)
 	if (on) {
 		dev_dbg(otg->phy->dev, "%s: turn on host\n", __func__);
 
-		/*
-		 * This should be revisited for more testing post-silicon.
-		 * In worst case we may need to disconnect the root hub
-		 * before stopping the controller so that it does not
-		 * interfere with runtime pm/system pm.
-		 * We can also consider registering and unregistering xhci
-		 * platform device. It is almost similar to add_hcd and
-		 * remove_hcd, But we may not use standard set_host method
-		 * anymore.
-		 */
-		dwc3_otg_set_host_regs(dotg);
-		/*
-		 * FIXME If micro A cable is disconnected during system suspend,
-		 * xhci platform device will be removed before runtime pm is
-		 * enabled for xhci device. Due to this, disable_depth becomes
-		 * greater than one and runtimepm is not enabled for next microA
-		 * connect. Fix this by calling pm_runtime_init for xhci device.
-		 */
-		pm_runtime_init(&dwc->xhci->dev);
-		ret = platform_device_add(dwc->xhci);
-		if (ret) {
-			dev_err(otg->phy->dev,
-				"%s: failed to add XHCI pdev ret=%d\n",
-				__func__, ret);
-			return ret;
-		}
-
 		dwc3_otg_notify_host_mode(otg, on);
 
 		/* register ocp notification */
@@ -234,7 +217,42 @@ static int dwc3_otg_start_host(struct usb_otg *otg, int on)
 		ret = regulator_enable(dotg->vbus_otg);
 		if (ret) {
 			dev_err(otg->phy->dev, "unable to enable vbus_otg\n");
-			platform_device_del(dwc->xhci);
+			dwc3_otg_notify_host_mode(otg, 0);
+			return ret;
+		}
+
+		/* The delay between enabling regulator and adding the
+		   platform device is needed to succeed in the enumeration
+		   for certain devices. */
+		usleep(10000);
+
+		/*
+		 * This should be revisited for more testing post-silicon.
+		 * In worst case we may need to disconnect the root hub
+		 * before stopping the controller so that it does not
+		 * interfere with runtime pm/system pm.
+		 * We can also consider registering and unregistering xhci
+		 * platform device. It is almost similar to add_hcd and
+		 * remove_hcd, But we may not use standard set_host method
+		 * anymore.
+		 */
+		dwc3_otg_set_hsphy_auto_suspend(dotg, true);
+		dwc3_otg_set_host_regs(dotg);
+		/*
+		 * FIXME If micro A cable is disconnected during system suspend,
+		 * xhci platform device will be removed before runtime pm is
+		 * enabled for xhci device. Due to this, disable_depth becomes
+		 * greater than one and runtimepm is not enabled for next microA
+		 * connect. Fix this by calling pm_runtime_init for xhci device.
+		 */
+		pm_runtime_init(&dwc->xhci->dev);
+		ret = platform_device_add(dwc->xhci);
+		if (ret) {
+			dev_err(otg->phy->dev,
+				"%s: failed to add XHCI pdev ret=%d\n",
+				__func__, ret);
+			regulator_disable(dotg->vbus_otg);
+			dwc3_otg_notify_host_mode(otg, 0);
 			return ret;
 		}
 
@@ -272,6 +290,7 @@ static int dwc3_otg_start_host(struct usb_otg *otg, int on)
 						ext_xceiv->ext_block_reset)
 			ext_xceiv->ext_block_reset(ext_xceiv, true);
 
+		dwc3_otg_set_hsphy_auto_suspend(dotg, false);
 		dwc3_otg_set_peripheral_regs(dotg);
 
 		/* re-init core and OTG registers as block reset clears these */
@@ -339,12 +358,14 @@ static int dwc3_otg_start_peripheral(struct usb_otg *otg, int on)
 						ext_xceiv->ext_block_reset)
 			ext_xceiv->ext_block_reset(ext_xceiv, false);
 
+		dwc3_otg_set_hsphy_auto_suspend(dotg, true);
 		dwc3_otg_set_peripheral_regs(dotg);
 		usb_gadget_vbus_connect(otg->gadget);
 	} else {
 		dev_dbg(otg->phy->dev, "%s: turn off gadget %s\n",
 					__func__, otg->gadget->name);
 		usb_gadget_vbus_disconnect(otg->gadget);
+		dwc3_otg_set_hsphy_auto_suspend(dotg, false);
 	}
 
 	return 0;
@@ -503,18 +524,6 @@ static void dwc3_ext_event_notify(struct usb_otg *otg,
 	}
 }
 
-static int  dwc3_ext_set_ocp_mode(struct usb_otg *otg, enum usb_ocp_modes mode)
-{
-	struct dwc3_otg *dotg = container_of(otg, struct dwc3_otg, otg);
-	struct usb_phy *phy = dotg->otg.phy;
-	int ret;
-
-	dev_dbg(phy->dev, "set ocp mode(%d)\n", mode);
-	ret = regulator_set_ocp_mode(dotg->vbus_otg, mode);
-
-	return ret;
-}
-
 /**
  * dwc3_set_ext_xceiv - bind/unbind external transceiver driver
  * @otg: Pointer to the otg transceiver structure
@@ -595,7 +604,7 @@ static int dwc3_otg_set_power(struct usb_phy *phy, unsigned mA)
 			dotg->charger->chg_type == DWC3_PROPRIETARY_CHARGER)
 		power_supply_type = POWER_SUPPLY_TYPE_USB_DCP;
 	else
-		power_supply_type = POWER_SUPPLY_TYPE_BATTERY;
+		power_supply_type = POWER_SUPPLY_TYPE_UNKNOWN;
 
 	dev_info(phy->dev, "set power supply type = %s\n",
 			dwc3_otg_supply_type_string(power_supply_type));
@@ -1051,7 +1060,6 @@ int dwc3_otg_init(struct dwc3 *dwc)
 
 	dotg->otg.set_peripheral = dwc3_otg_set_peripheral;
 	dotg->otg.set_host = dwc3_otg_set_host;
-	dotg->otg.set_ocp_mode = dwc3_ext_set_ocp_mode;
 
 	/* This reference is used by dwc3 modules for checking otg existance */
 	dwc->dotg = dotg;

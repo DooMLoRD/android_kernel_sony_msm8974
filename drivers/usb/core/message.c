@@ -1,11 +1,5 @@
 /*
  * message.c - synchronous message handling
- *
- * A file without copyright statement was modified by Sony Mobile in 2013.
- *
- * NOTE: This file has been modified by Sony Mobile Communications AB.
- * Modifications are Copyright (c) 2013 Sony Mobile Communications AB,
- * and licensed under the license of the file.
  */
 
 #include <linux/pci.h>	/* for scatterlist macros */
@@ -21,7 +15,6 @@
 #include <linux/scatterlist.h>
 #include <linux/usb/quirks.h>
 #include <linux/usb/hcd.h>	/* for usbcore internals */
-#include <linux/usb/otg.h>
 #include <asm/byteorder.h>
 
 #include "usb.h"
@@ -1801,12 +1794,6 @@ free_interfaces:
 	}
 	mutex_unlock(hcd->bandwidth_mutex);
 	usb_set_device_state(dev, USB_STATE_CONFIGURED);
-
-	/* when the non root hub device is configured,
-	 * set the ocp mode stricted.
-	 */
-	if (dev->level == 1)
-		usb_set_ocp_mode(USB_OCP_MODE_STRICTED);
 
 	/* Initialize the new interface structures and the
 	 * hc/hcd/usbcore interface/endpoint state.

@@ -179,6 +179,16 @@ static int audio_aio_pause(struct q6audio_aio  *audio)
 			pr_err("%s[%p]: pause cmd failed rc=%d\n",
 				__func__, audio, rc);
 
+		if (rc == 0) {
+			/* Send suspend only if pause was successful */
+			rc = q6asm_cmd(audio->ac, CMD_SUSPEND);
+			if (rc < 0)
+				pr_err("%s[%p]: suspend cmd failed rc=%d\n",
+					__func__, audio, rc);
+		} else
+			pr_err("%s[%p]: not sending suspend since pause failed\n",
+				__func__, audio);
+
 	} else
 		pr_err("%s[%p]: Driver not enabled\n", __func__, audio);
 	return rc;
@@ -1189,6 +1199,7 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case AUDIO_GET_STATS: {
 		struct msm_audio_stats stats;
 		uint64_t timestamp;
+		memset(&stats, 0, sizeof(struct msm_audio_stats));
 		stats.byte_count = atomic_read(&audio->in_bytes);
 		stats.sample_count = atomic_read(&audio->in_samples);
 		rc = q6asm_get_session_time(audio->ac, &timestamp);

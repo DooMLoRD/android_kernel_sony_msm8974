@@ -224,7 +224,6 @@ struct qpnp_regulator {
 	int					ocp_retry_delay_ms;
 	struct regulator_ocp_notification	ocp_notification;
 	spinlock_t				ocp_lock;
-	unsigned int				ocp_mode;
 	int					system_load;
 	int					hpm_min_load;
 	u32					write_count;
@@ -521,7 +520,6 @@ static int qpnp_regulator_vs_enable(struct regulator_dev *rdev)
 	if (vreg->ocp_irq) {
 		vreg->ocp_count = 0;
 		vreg->vs_enable_time = ktime_get();
-		vreg->ocp_mode = REGULATOR_OCP_MODE_DEFAULT;
 	}
 
 	return qpnp_regulator_common_enable(rdev);
@@ -808,26 +806,6 @@ static int qpnp_regulator_vs_register_ocp_notification(
 	return 0;
 }
 
-static int qpnp_regulator_vs_set_ocp_mode(
-				struct regulator_dev *rdev,
-				unsigned int mode)
-{
-	unsigned long flags;
-	struct qpnp_regulator *vreg = rdev_get_drvdata(rdev);
-
-	spin_lock_irqsave(&vreg->ocp_lock, flags);
-	vreg->ocp_mode = mode;
-	spin_unlock_irqrestore(&vreg->ocp_lock, flags);
-
-	if (qpnp_vreg_debug_mask & QPNP_VREG_DEBUG_OCP) {
-		pr_info("%s: set ocp mode(mode=%x)\n",
-			vreg->rdesc.name,
-			vreg->ocp_mode);
-	}
-
-	return 0;
-}
-
 static int qpnp_regulator_vs_clear_ocp(struct qpnp_regulator *vreg)
 {
 	int rc;
@@ -871,7 +849,6 @@ static irqreturn_t qpnp_regulator_vs_ocp_isr(int irq, void *data)
 	struct qpnp_regulator *vreg = data;
 	ktime_t ocp_irq_time;
 	s64 ocp_trigger_delay_us;
-	unsigned long flags;
 
 	ocp_irq_time = ktime_get();
 	ocp_trigger_delay_us = ktime_us_delta(ocp_irq_time,
@@ -887,12 +864,6 @@ static irqreturn_t qpnp_regulator_vs_ocp_isr(int irq, void *data)
 
 	/* Wait for switch output to settle back to 0 V after OCP triggered. */
 	udelay(QPNP_VS_OCP_FALL_DELAY_US);
-
-	/* Force ocp triggered, if stricted mode. */
-	spin_lock_irqsave(&vreg->ocp_lock, flags);
-	if (vreg->ocp_mode == REGULATOR_OCP_MODE_STRICTED)
-		vreg->ocp_count = vreg->ocp_max_retries;
-	spin_unlock_irqrestore(&vreg->ocp_lock, flags);
 
 	vreg->ocp_count++;
 
@@ -910,6 +881,7 @@ static irqreturn_t qpnp_regulator_vs_ocp_isr(int irq, void *data)
 		schedule_delayed_work(&vreg->ocp_work,
 			msecs_to_jiffies(vreg->ocp_retry_delay_ms) + 1);
 	} else {
+		unsigned long flags;
 		vreg_err(vreg, "OCP triggered %d times; no further retries\n",
 			vreg->ocp_count);
 		spin_lock_irqsave(&vreg->ocp_lock, flags);
@@ -1096,7 +1068,6 @@ static struct regulator_ops qpnp_vs_ops = {
 	.enable_time		= qpnp_regulator_common_enable_time,
 	.register_ocp_notification
 		= qpnp_regulator_vs_register_ocp_notification,
-	.set_ocp_mode		= qpnp_regulator_vs_set_ocp_mode,
 };
 
 static struct regulator_ops qpnp_boost_ops = {
@@ -1538,7 +1509,6 @@ static int __devinit qpnp_regulator_probe(struct spmi_device *spmi)
 	memset(&vreg->ocp_notification, 0,
 		sizeof(vreg->ocp_notification));
 	spin_lock_init(&vreg->ocp_lock);
-	vreg->ocp_mode		= REGULATOR_OCP_MODE_DEFAULT;
 
 	rdesc			= &vreg->rdesc;
 	rdesc->id		= spmi->ctrl->nr;

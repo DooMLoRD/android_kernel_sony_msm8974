@@ -2247,13 +2247,15 @@ EXPORT_SYMBOL(smd_disable_read_intr);
  * particular channel.
  * @ch:      open channel handle to use for the edge
  * @mask:    1 = mask interrupts; 0 = unmask interrupts
+ * @cpumask  cpumask for the next cpu scheduled to be woken up
  * @returns: 0 for success; < 0 for failure
  *
  * Note that this enables/disables all interrupts from the remote subsystem for
  * all channels.  As such, it should be used with care and only for specific
  * use cases such as power-collapse sequencing.
  */
-int smd_mask_receive_interrupt(smd_channel_t *ch, bool mask)
+int smd_mask_receive_interrupt(smd_channel_t *ch, bool mask,
+		const struct cpumask *cpumask)
 {
 	struct irq_chip *irq_chip;
 	struct irq_data *irq_data;
@@ -2282,6 +2284,8 @@ int smd_mask_receive_interrupt(smd_channel_t *ch, bool mask)
 		SMD_POWER_INFO("SMD Masking interrupts from %s\n",
 				edge_to_pids[ch->type].subsys_name);
 		irq_chip->irq_mask(irq_data);
+		if (cpumask)
+			irq_set_affinity(int_cfg->irq_id, cpumask);
 	} else {
 		SMD_POWER_INFO("SMD Unmasking interrupts from %s\n",
 				edge_to_pids[ch->type].subsys_name);
@@ -3243,7 +3247,7 @@ int smd_edge_to_remote_pid(uint32_t edge)
  */
 void smd_set_edge_subsys_name(uint32_t edge, const char *subsys_name)
 {
-	if (edge <= ARRAY_SIZE(edge_to_pids))
+	if (edge < ARRAY_SIZE(edge_to_pids))
 		strlcpy(edge_to_pids[edge].subsys_name,
 			subsys_name, SMD_MAX_CH_NAME_LEN);
 	else
@@ -3258,7 +3262,7 @@ void smd_set_edge_subsys_name(uint32_t edge, const char *subsys_name)
  */
 void smd_set_edge_initialized(uint32_t edge)
 {
-	if (edge <= ARRAY_SIZE(edge_to_pids))
+	if (edge < ARRAY_SIZE(edge_to_pids))
 		edge_to_pids[edge].initialized = true;
 	else
 		pr_err("%s: Invalid edge type[%d]\n", __func__, edge);

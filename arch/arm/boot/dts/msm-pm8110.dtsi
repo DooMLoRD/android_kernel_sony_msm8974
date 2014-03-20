@@ -320,6 +320,7 @@
 			qcom,ocv-voltage-high-threshold-uv = <3750000>;
 			qcom,ocv-voltage-low-threshold-uv = <3650000>;
 			qcom,low-soc-calculate-soc-threshold = <15>;
+			qcom,low-voltage-calculate-soc-ms = <1000>;
 			qcom,low-soc-calculate-soc-ms = <5000>;
 			qcom,calculate-soc-ms = <20000>;
 			qcom,chg-term-ua = <100000>;
@@ -327,7 +328,7 @@
 			qcom,low-voltage-threshold = <3420000>;
 			qcom,tm-temp-margin = <5000>;
 			qcom,low-ocv-correction-limit-uv = <100>;
-			qcom,high-ocv-correction-limit-uv = <50>;
+			qcom,high-ocv-correction-limit-uv = <250>;
 			qcom,hold-soc-est = <3>;
 			qcom,bms-vadc = <&pm8110_vadc>;
 			qcom,bms-iadc = <&pm8110_iadc>;

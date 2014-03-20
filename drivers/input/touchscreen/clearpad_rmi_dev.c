@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2011 Synaptics Incorporated
  * Copyright (C) 2012 Sony Ericsson Mobile Communications AB.
- * Copyright (C) 2012 Sony Mobile Communications AB.
+ * Copyright (C) 2012-2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,7 +69,7 @@ static int rmi_read_block(struct rmidev_data *data, u16 addr, u8 *buf, int len)
 }
 
 static int rmi_write_block(struct rmidev_data *data, u16 addr, const u8 *buf,
-		u8 len)
+		int len)
 {
 	return data->bdata->write_block(data->bdata->dev, addr, buf, len);
 }
@@ -240,7 +240,7 @@ static ssize_t rmidev_write(struct file *filp, const char __user *buf,
 
 	mutex_lock(&(data->file_mutex));
 
-	retval = rmi_write_block(data, *f_pos, data->tmpbuf, count);
+	retval = rmi_write_block(data, *f_pos, data->tmpbuf, (int)count);
 
 	if (retval >= 0)
 		*f_pos += count;

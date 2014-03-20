@@ -553,6 +553,7 @@ int create_pkt_cmd_session_ftb(struct hfi_cmd_session_fill_buffer_packet *pkt,
 	pkt->alloc_len = output_frame->alloc_len;
 	pkt->filled_len = output_frame->filled_len;
 	pkt->offset = output_frame->offset;
+	pkt->rgData[0] = output_frame->extradata_size;
 	dprintk(VIDC_DBG, "### Q OUTPUT BUFFER ###: %d, %d, %d\n",
 			pkt->alloc_len, pkt->filled_len, pkt->offset);
 
@@ -564,7 +565,7 @@ int create_pkt_cmd_session_parse_seq_header(
 		u32 session_id, struct vidc_seq_hdr *seq_hdr)
 {
 	int rc = 0;
-	if (!pkt || !session_id || seq_hdr)
+	if (!pkt || !session_id || !seq_hdr)
 		return -EINVAL;
 
 	pkt->size = sizeof(struct hfi_cmd_session_parse_sequence_header_packet);
@@ -803,7 +804,8 @@ int create_pkt_cmd_session_set_property(
 		pkt->rg_property_data[0] =
 			HFI_PROPERTY_PARAM_VDEC_PICTURE_TYPE_DECODE;
 		hfi = (struct hfi_enable_picture *) &pkt->rg_property_data[1];
-		hfi->picture_type = (u32) pdata;
+		hfi->picture_type =
+			((struct hfi_enable_picture *)pdata)->picture_type;
 		pkt->size += sizeof(u32) * 2;
 		break;
 	}
