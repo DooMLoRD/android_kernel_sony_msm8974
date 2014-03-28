@@ -475,6 +475,39 @@ struct synaptics_clearpad {
 	const char *reset_cause;
 };
 
+#define DOUBLE_TAP_TO_WAKE_TIMEOUT 300
+
+static struct evgen_record double_tap[] = {
+	{
+		.type = EVGEN_LOG,
+		.data.log.message = "=== DOUBLE TAP ===",
+	},
+	{
+		.type = EVGEN_KEY,
+		.data.key.code = KEY_POWER,
+		.data.key.down = true,
+	},
+	{
+		.type = EVGEN_KEY,
+		.data.key.code = KEY_POWER,
+		.data.key.down = false,
+	},
+	{
+		.type = EVGEN_END,
+	},
+};
+
+static struct evgen_block evgen_blocks[] = {
+	{
+		.name = "double_tap",
+		.records = double_tap,
+	},
+	{
+		.name = NULL,
+		.records = NULL,
+	}
+};
+
 static void synaptics_funcarea_initialize(struct synaptics_clearpad *this);
 static void synaptics_clearpad_reset_power(struct synaptics_clearpad *this,
 					   const char *cause);
@@ -623,7 +656,7 @@ static int clearpad_flip_config_get(u8 module_id, u8 rev)
 
 static struct evgen_block *clearpad_evgen_block_get(u8 module_id, u8 rev)
 {
-	return NULL;
+	return evgen_blocks;
 }
 
 static void synaptics_clearpad_set_irq(struct synaptics_clearpad *this,
@@ -2211,6 +2244,16 @@ static void synaptics_funcarea_up(struct synaptics_clearpad *this,
 		LOG_EVENT(this, "%s up\n", valid ? "pt" : "unused pt");
 		if (!valid)
 			break;
+		if (this->easy_wakeup_config.gesture_enable && !(this->active & SYN_ACTIVE_POWER)) {
+			LOG_CHECK(this, "D2W: difference: %u", jiffies_to_msecs(this->ew_timeout) - jiffies_to_msecs(jiffies));
+			if (time_after(jiffies, this->ew_timeout)) {
+				this->ew_timeout = jiffies + msecs_to_jiffies(this->easy_wakeup_config.timeout_delay);
+				LOG_CHECK(this, "D2W: now: %u | new timeout: %u", jiffies_to_msecs(jiffies), jiffies_to_msecs(this->ew_timeout));
+			} else {
+				LOG_CHECK(this, "D2W: Unlock!");
+				evgen_execute(this->input, this->evgen_blocks, "double_tap");
+			}
+		}
 		input_mt_slot(idev, pointer->cur.id);
 		input_mt_report_slot_state(idev, pointer->cur.tool, false);
 		break;
@@ -4148,6 +4191,9 @@ static int __devinit clearpad_probe(struct platform_device *pdev)
 		memcpy(&this->easy_wakeup_config,
 			this->pdata->easy_wakeup_config,
 			sizeof(this->easy_wakeup_config));
+
+	this->easy_wakeup_config.gesture_enable = true;
+	this->easy_wakeup_config.timeout_delay = DOUBLE_TAP_TO_WAKE_TIMEOUT;
 
 #ifdef CONFIG_TOUCHSCREEN_CLEARPAD_RMI_DEV
 	if (!cdata->rmi_dev) {
