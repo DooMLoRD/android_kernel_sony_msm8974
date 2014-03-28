@@ -475,7 +475,7 @@ struct synaptics_clearpad {
 	const char *reset_cause;
 };
 
-#define DOUBLE_TAP_TO_WAKE_TIMEOUT 300
+#define DOUBLE_TAP_TO_WAKE_TIMEOUT 200
 
 static struct evgen_record double_tap[] = {
 	{
@@ -2247,7 +2247,8 @@ static void synaptics_funcarea_up(struct synaptics_clearpad *this,
 		if (this->easy_wakeup_config.gesture_enable && !(this->active & SYN_ACTIVE_POWER)) {
 			LOG_CHECK(this, "D2W: difference: %u", jiffies_to_msecs(this->ew_timeout) - jiffies_to_msecs(jiffies));
 			if (time_after(jiffies, this->ew_timeout)) {
-				this->ew_timeout = jiffies + msecs_to_jiffies(this->easy_wakeup_config.timeout_delay);
+				/* Not sure if using this->easy_wakeup_config.timeout_delay is wise, where is it set from? */
+				this->ew_timeout = jiffies + msecs_to_jiffies(DOUBLE_TAP_TO_WAKE_TIMEOUT);
 				LOG_CHECK(this, "D2W: now: %u | new timeout: %u", jiffies_to_msecs(jiffies), jiffies_to_msecs(this->ew_timeout));
 			} else {
 				LOG_CHECK(this, "D2W: Unlock!");
