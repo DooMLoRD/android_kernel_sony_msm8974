@@ -27,6 +27,10 @@
 #include "dwc3_otg.h"
 #include "io.h"
 #include "xhci.h"
+ 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/fastchg.h>
+#endif
 
 #define VBUS_REG_CHECK_DELAY	(msecs_to_jiffies(1000))
 #define MAX_INVALID_CHRGR_RETRY 3
@@ -830,6 +834,17 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 					work = 1;
 					break;
 				case DWC3_SDP_CHARGER:
+#ifdef CONFIG_FORCE_FAST_CHARGE
+					if (force_fast_charge > 0)
+						dwc3_otg_set_power(phy,
+							DWC3_IDEV_CHG_MAX);
+					else
+						dwc3_otg_set_power(phy,
+							DWC3_IDEV_CHG_MIN);
+#else
+ 					dwc3_otg_set_power(phy,
+ 							DWC3_IDEV_CHG_MIN);
+#endif
 					dwc3_otg_start_peripheral(&dotg->otg,
 									1);
 					phy->state = OTG_STATE_B_PERIPHERAL;
