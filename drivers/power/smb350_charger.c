@@ -30,6 +30,10 @@
 #include <linux/of_gpio.h>
 #include <linux/printk.h>
 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/fastchg.h>
+#endif
+
 /* Register definitions */
 #define CHG_CURRENT_REG			0x00	/* Non-Volatile + mirror */
 #define CHG_OTHER_CURRENT_REG		0x01	/* Non-Volatile + mirror */
@@ -478,28 +482,22 @@ static int smb350_set_chg_current(struct i2c_client *client, int current_ma)
 
 #ifdef CONFIG_FORCE_FAST_CHARGE
 	if (force_fast_charge == 1) {
-		i = 4;
 		custom_ma = FAST_CHARGE_1200;
 	} else if (force_fast_charge == 2) {
 		switch (fast_charge_level) {
 			case FAST_CHARGE_500:
-				i = 2;
 				custom_ma = FAST_CHARGE_500;
 				break;
 			case FAST_CHARGE_900:
-				i = 3;
 				custom_ma = FAST_CHARGE_900;
 				break;
 			case FAST_CHARGE_1200:
-				i = 4;
 				custom_ma = FAST_CHARGE_1200;
 				break;
 			case FAST_CHARGE_1500:
-				i = 5;
 				custom_ma = FAST_CHARGE_1500;
 				break;
 			case FAST_CHARGE_2000:
-				i = 6;
 				custom_ma = FAST_CHARGE_2000;
 				break;
 			default:
