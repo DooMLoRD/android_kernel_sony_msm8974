@@ -314,7 +314,7 @@ else ifdef CONFIG_MACH_SONY_TOGARI_BRAZIL
 else ifdef CONFIG_MACH_SONY_TOGARI_KDDI
 	obj-$(CONFIG_MACH_SONY_TOGARI_KDDI) += board-sony_togari_kddi-gpiomux.o bms-batterydata-burton.o
 else ifdef CONFIG_MACH_SONY_HONAMI_ROW
-	obj-$(CONFIG_MACH_SONY_HONAMI_ROW) += board-sony_honami_row-gpiomux.o bms-batterydata-salomon.o
+	obj-$(CONFIG_MACH_SONY_HONAMI_ROW) += board-sony_honami_row-gpiomux.o bms-batterydata-salomon.o board-sony_honami_row-touch.o
 else ifdef CONFIG_MACH_SONY_HONAMI_DCM
 	obj-$(CONFIG_MACH_SONY_HONAMI_DCM) += board-sony_honami_dcm-gpiomux.o bms-batterydata-salomon.o
 else ifdef CONFIG_MACH_SONY_HONAMI_KDDI
