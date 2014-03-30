@@ -465,6 +465,9 @@ static int smb350_set_chg_current(struct i2c_client *client, int current_ma)
 {
 	int ret;
 	u8 temp;
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	int custom_ma = current_ma;
+#endif
 
 	if ((current_ma < SMB350_FAST_CHG_MIN_MA) ||
 	    (current_ma >  SMB350_FAST_CHG_MAX_MA)) {
@@ -472,9 +475,47 @@ static int smb350_set_chg_current(struct i2c_client *client, int current_ma)
 		return -EINVAL;
 	}
 
-	temp = (current_ma - SMB350_FAST_CHG_MIN_MA) / SMB350_FAST_CHG_STEP_MA;
 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	if (force_fast_charge == 1) {
+		i = 4;
+		custom_ma = FAST_CHARGE_1200;
+	} else if (force_fast_charge == 2) {
+		switch (fast_charge_level) {
+			case FAST_CHARGE_500:
+				i = 2;
+				custom_ma = FAST_CHARGE_500;
+				break;
+			case FAST_CHARGE_900:
+				i = 3;
+				custom_ma = FAST_CHARGE_900;
+				break;
+			case FAST_CHARGE_1200:
+				i = 4;
+				custom_ma = FAST_CHARGE_1200;
+				break;
+			case FAST_CHARGE_1500:
+				i = 5;
+				custom_ma = FAST_CHARGE_1500;
+				break;
+			case FAST_CHARGE_2000:
+				i = 6;
+				custom_ma = FAST_CHARGE_2000;
+				break;
+			default:
+				break;
+		}
+
+	}
+#endif
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	temp = (custom_ma - SMB350_FAST_CHG_MIN_MA) / SMB350_FAST_CHG_STEP_MA;
+	pr_debug("fast-chg-current=%d mA setting %02x\n", custom_ma, temp);
+#else
+	temp = (current_ma - SMB350_FAST_CHG_MIN_MA) / SMB350_FAST_CHG_STEP_MA;
 	pr_debug("fast-chg-current=%d mA setting %02x\n", current_ma, temp);
+#endif
 
 	ret = smb350_masked_write(client, CHG_CURRENT_REG,
 				  FAST_CHG_CURRENT_MASK, temp);
