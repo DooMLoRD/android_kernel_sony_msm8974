@@ -38,6 +38,7 @@
 #ifdef CONFIG_ARM
 #include <asm/mach-types.h>
 #endif
+#include <linux/lcd_notify.h>
 
 #define SYNAPTICS_CLEARPAD_VENDOR		0x1
 #define SYNAPTICS_MAX_N_FINGERS			10
@@ -475,7 +476,8 @@ struct synaptics_clearpad {
 	const char *reset_cause;
 };
 
-#define DOUBLE_TAP_TO_WAKE_TIMEOUT 200
+#define DOUBLE_TAP_TO_WAKE_TIMEOUT 400
+bool lcd_on;
 
 static struct evgen_record double_tap[] = {
 	{
@@ -507,6 +509,24 @@ static struct evgen_block evgen_blocks[] = {
 		.records = NULL,
 	}
 };
+
+static struct notifier_block d2w_lcd_notif;
+
+static int lcd_notifier_callback(struct notifier_block *this, unsigned long event, void *data)
+{
+	switch (event) {
+	case LCD_EVENT_ON_END:
+		lcd_on = true;
+		break;
+	case LCD_EVENT_OFF_END:
+		lcd_on = false;
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
 
 static void synaptics_funcarea_initialize(struct synaptics_clearpad *this);
 static void synaptics_clearpad_reset_power(struct synaptics_clearpad *this,
@@ -2244,7 +2264,7 @@ static void synaptics_funcarea_up(struct synaptics_clearpad *this,
 		LOG_EVENT(this, "%s up\n", valid ? "pt" : "unused pt");
 		if (!valid)
 			break;
-		if (this->easy_wakeup_config.gesture_enable && !(this->active & SYN_ACTIVE_POWER)) {
+		if (this->easy_wakeup_config.gesture_enable && !lcd_on) {
 			LOG_CHECK(this, "D2W: difference: %u", jiffies_to_msecs(this->ew_timeout) - jiffies_to_msecs(jiffies));
 			if (time_after(jiffies, this->ew_timeout)) {
 				/* Not sure if using this->easy_wakeup_config.timeout_delay is wise, where is it set from? */
@@ -4446,11 +4466,16 @@ static struct platform_driver clearpad_driver = {
 
 static int __init clearpad_init(void)
 {
+	d2w_lcd_notif.notifier_call = lcd_notifier_callback;
+	lcd_register_client(&d2w_lcd_notif);
+
 	return platform_driver_register(&clearpad_driver);
 }
 
 static void __exit clearpad_exit(void)
 {
+	lcd_unregister_client(&d2w_lcd_notif);
+
 	platform_driver_unregister(&clearpad_driver);
 }
 
