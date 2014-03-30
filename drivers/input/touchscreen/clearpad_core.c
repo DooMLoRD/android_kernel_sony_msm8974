@@ -460,6 +460,7 @@ struct synaptics_clearpad {
 	u32 num_sensor_tx;
 	u32 pen_enabled;
 	u32 glove_enabled;
+	u32 wakeup_gesture_enabled;
 	u32 touch_pressure_enabled;
 	u32 touch_size_enabled;
 	u32 touch_orientation_enabled;
@@ -3337,6 +3338,9 @@ static void clearpad_touch_config_dt(struct synaptics_clearpad *this)
 	if (of_property_read_u32(devnode, "glove_enabled",
 		&this->glove_enabled))
 		dev_warn(&this->pdev->dev, "no glove_enabled config\n");
+
+	if (of_property_read_u32(devnode, "wakeup_gesture_enabled", &this->wakeup_gesture_enabled))
+		dev_warn(&this->pdev->dev, "no wakeup_gesture_enabled config\n");
 
 	if (of_property_read_u32(devnode, "touch_pressure_enabled",
 		&this->touch_pressure_enabled))
