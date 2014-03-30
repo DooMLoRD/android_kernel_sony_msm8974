@@ -20,7 +20,7 @@
 #include <linux/delay.h>
 #include <linux/miscdevice.h>
 #include <linux/clearpad.h>
-#include <linux/input/evgen_helper.h>
+#include <linux/input/evdt_helper.h>
 #include <mach/gpio.h>
 #include <linux/ctype.h>
 #include <linux/firmware.h>
@@ -67,6 +67,7 @@
 #define HWTEST_SIZE_OF_ONE_HIGH_RX		3
 #define HWTEST_SIZE_OF_TX_TO_TX_SHORT(x)	(((x) + 7) / 8)
 #define SYNAPTICS_WATCHDOG_POLL_DEFAULT_INTERVAL HZ
+#define SYNAPTICS_WAKEUP_GESTURE		"wakeup_gesture"
 
 #define SYN_ADDRESS(th, func, type, addr) ((th)->pdt[func].base[type] + (addr))
 #define SYN_PAGE(th, func) ((th)->pdt[func].page)
@@ -435,7 +436,6 @@ struct synaptics_clearpad {
 	struct synaptics_function_descriptor pdt[SYN_N_FUNCTIONS];
 	struct synaptics_flash_image flash;
 	struct synaptics_easy_wakeup_config easy_wakeup_config;
-	struct evgen_block *evgen_blocks;
 	bool fwdata_available;
 	enum synaptics_flash_modes flash_mode;
 	struct synaptics_extents extents;
@@ -463,6 +463,8 @@ struct synaptics_clearpad {
 	u32 touch_pressure_enabled;
 	u32 touch_size_enabled;
 	u32 touch_orientation_enabled;
+	struct device_node *evdt_node;
+	u32 wakeup_gesture_support;
 	unsigned long ew_timeout;
 	struct delayed_work wd_poll_work;
 	int wd_poll_t_jf;
@@ -619,11 +621,6 @@ static struct synaptics_funcarea *clearpad_funcarea_get(
 static int clearpad_flip_config_get(u8 module_id, u8 rev)
 {
 	return SYN_FLIP_NONE;
-}
-
-static struct evgen_block *clearpad_evgen_block_get(u8 module_id, u8 rev)
-{
-	return NULL;
 }
 
 static void synaptics_clearpad_set_irq(struct synaptics_clearpad *this,
@@ -2514,6 +2511,9 @@ static int synaptics_clearpad_handle_gesture(struct synaptics_clearpad *this)
 	rc = synaptics_read(this, SYNF(F11_2D, DATA,
 			this->easy_wakeup_config.large_panel ? 0x39 : 0x43),
 			&wakeint, 1);
+
+	dev_info(&this->pdev->dev, "DooMLoRD_DEBUG: got wakeinit - %d", wakeint);
+
 	if (rc)
 		goto exit;
 
@@ -2525,23 +2525,7 @@ static int synaptics_clearpad_handle_gesture(struct synaptics_clearpad *this)
 	else
 		goto exit;
 
-	switch (wakeint) {
-	case XY_LPWG_STATUS_DOUBLE_TAP_DETECTED:
-		rc = evgen_execute(this->input, this->evgen_blocks,
-					"double_tap");
-		break;
-	case XY_LPWG_STATUS_SWIPE_DETECTED:
-		rc = evgen_execute(this->input, this->evgen_blocks,
-					"single_swipe");
-		break;
-	case XY_LPWG_STATUS_TWO_SWIPE_DETECTED:
-		rc = evgen_execute(this->input, this->evgen_blocks,
-					"two_swipe");
-		break;
-	default:
-		dev_info(&this->pdev->dev, "Gesture %d Not supported", wakeint);
-		break;
-	}
+	evdt_execute(this->evdt_node, this->input, wakeint);
 exit:
 	return rc;
 }
@@ -3367,6 +3351,20 @@ static void clearpad_touch_config_dt(struct synaptics_clearpad *this)
 	if (of_property_read_u32(devnode, "por_delay_after",
 		&this->por_delay_after))
 		dev_warn(&this->pdev->dev, "no por_delay_after config\n");
+
+	if (of_property_read_bool(devnode, "large_panel"))
+		this->easy_wakeup_config.large_panel = true;
+	else
+		dev_warn(&this->pdev->dev, "no large_panel\n");
+
+	if (of_property_read_u32(devnode, "wakeup_gesture_support",
+		&this->wakeup_gesture_support))
+		dev_warn(&this->pdev->dev, "no wakeup_gesture_support\n");
+
+	if (of_property_read_u32(devnode, "wakeup_gesture_timeout",
+		&this->easy_wakeup_config.timeout_delay))
+		dev_warn(&this->pdev->dev, "no wakeup_gesture_timeout\n");
+
 }
 
 static int synaptics_clearpad_input_init(struct synaptics_clearpad *this,
@@ -3399,21 +3397,22 @@ static int synaptics_clearpad_input_ev_init(struct synaptics_clearpad *this)
 {
 	int rc = 0;
 
-	this->evgen_blocks = clearpad_evgen_block_get(
-		this->device_info.customer_family,
-		this->device_info.firmware_revision_major);
-	dev_info(&this->pdev->dev, "evgen_blocks is %s\n",
-		 this->evgen_blocks ? "used" : "null");
-	evgen_initialize(this->input, this->evgen_blocks);
-
-	if (this->evgen_blocks) {
+	if (this->wakeup_gesture_support) {
+		this->evdt_node = evdt_initialize(this->bdata->dev, this->input,
+						SYNAPTICS_WAKEUP_GESTURE);
+		if (!this->evdt_node) {
+			dev_err(&this->pdev->dev, "no wakeup_gesture dt\n");
+		} else {
 		rc = device_create_file(&this->input->dev,
 				&clearpad_wakeup_gesture_attr);
 		if (rc)
 			dev_err(&this->pdev->dev,
 				"sysfs_create_file failed: %d\n", rc);
-	}
 
+			dev_info(&this->pdev->dev, "Touch Wakeup Feature OK\n");
+			device_init_wakeup(&this->pdev->dev, 0);
+		}
+	}
 	return rc;
 }
 
@@ -4141,13 +4140,9 @@ static int __devinit clearpad_probe(struct platform_device *pdev)
 		goto err_free;
 	}
 
-	if (this->bdata->of_node)
+	if (this->bdata->of_node) {
 		clearpad_touch_config_dt(this);
-
-	if (this->pdata->easy_wakeup_config)
-		memcpy(&this->easy_wakeup_config,
-			this->pdata->easy_wakeup_config,
-			sizeof(this->easy_wakeup_config));
+	}
 
 #ifdef CONFIG_TOUCHSCREEN_CLEARPAD_RMI_DEV
 	if (!cdata->rmi_dev) {
@@ -4201,7 +4196,7 @@ static int __devinit clearpad_probe(struct platform_device *pdev)
 	rc = synaptics_clearpad_initialize(this);
 	UNLOCK(this);
 	if (rc) {
-		dev_err(&this->pdev->dev, "faild clearpad initialization\n");
+		dev_err(&this->pdev->dev, "failed clearpad initialization\n");
 		retry = true;
 		goto err_gpio_teardown;
 	}
