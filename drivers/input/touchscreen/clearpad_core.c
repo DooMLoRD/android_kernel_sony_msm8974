@@ -482,6 +482,7 @@ struct synaptics_clearpad {
 #ifdef CONFIG_TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
 #define DOUBLE_TAP_TO_WAKE_TIMEOUT 700
 bool lcd_on;
+unsigned long d2w_timeout;
 
 static struct evgen_record double_tap[] = {
 	{
@@ -524,6 +525,7 @@ static int lcd_notifier_callback(struct notifier_block *this, unsigned long even
 		break;
 	case LCD_EVENT_OFF_END:
 		lcd_on = false;
+		d2w_timeout = jiffies -1;
 		break;
 	default:
 		break;
@@ -2275,11 +2277,11 @@ static void synaptics_funcarea_up(struct synaptics_clearpad *this,
 			break;
 #ifdef CONFIG_TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
 		if (this->easy_wakeup_config.gesture_enable && !lcd_on) {
-			LOG_CHECK(this, "D2W: difference: %u", jiffies_to_msecs(this->ew_timeout) - jiffies_to_msecs(jiffies));
-			if (time_after(jiffies, this->ew_timeout)) {
+			LOG_CHECK(this, "D2W: difference: %u", jiffies_to_msecs(d2w_timeout) - jiffies_to_msecs(jiffies));
+			if (time_after(jiffies, d2w_timeout)) {
 				/* Not sure if using this->easy_wakeup_config.timeout_delay is wise, where is it set from? */
-				this->ew_timeout = jiffies + msecs_to_jiffies(DOUBLE_TAP_TO_WAKE_TIMEOUT);
-				LOG_CHECK(this, "D2W: now: %u | new timeout: %u", jiffies_to_msecs(jiffies), jiffies_to_msecs(this->ew_timeout));
+				d2w_timeout = jiffies + msecs_to_jiffies(DOUBLE_TAP_TO_WAKE_TIMEOUT);
+				LOG_CHECK(this, "D2W: now: %u | new timeout: %u", jiffies_to_msecs(jiffies), jiffies_to_msecs(d2w_timeout));
 			} else {
 				LOG_CHECK(this, "D2W: Unlock!");
 				evgen_execute(this->input, this->evgen_blocks, "double_tap");
