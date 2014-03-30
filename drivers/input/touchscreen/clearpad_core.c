@@ -476,7 +476,7 @@ struct synaptics_clearpad {
 	const char *reset_cause;
 };
 
-#define DOUBLE_TAP_TO_WAKE_TIMEOUT 400
+#define DOUBLE_TAP_TO_WAKE_TIMEOUT 700
 bool lcd_on;
 
 static struct evgen_record double_tap[] = {
