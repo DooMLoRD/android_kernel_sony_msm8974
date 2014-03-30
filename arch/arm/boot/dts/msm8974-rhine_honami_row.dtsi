@@ -50,6 +50,7 @@
 			num_sensor_rx = <28>;
 			num_sensor_tx = <15>;
 			pen_enabled = <0>;
+			wakeup_gesture_enabled = <1>;
 			touch_pressure_enabled = <1>;
 			touch_size_enabled = <0>;
 			touch_orientation_enabled = <0>;
