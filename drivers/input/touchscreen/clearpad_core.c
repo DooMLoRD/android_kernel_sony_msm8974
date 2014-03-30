@@ -481,7 +481,8 @@ struct synaptics_clearpad {
 
 #ifdef CONFIG_TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
 #define DOUBLE_TAP_TO_WAKE_TIMEOUT 700
-bool lcd_on;
+/* Screen will always be on after boot */
+bool lcd_on = true;
 unsigned long d2w_timeout;
 
 static struct evgen_record double_tap[] = {
@@ -2276,7 +2277,7 @@ static void synaptics_funcarea_up(struct synaptics_clearpad *this,
 		if (!valid)
 			break;
 #ifdef CONFIG_TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
-		if (this->easy_wakeup_config.gesture_enable && !lcd_on) {
+		if (this->easy_wakeup_config.gesture_enable && !lcd_on && cur->id == 0) {
 			LOG_CHECK(this, "D2W: difference: %u", jiffies_to_msecs(d2w_timeout) - jiffies_to_msecs(jiffies));
 			if (time_after(jiffies, d2w_timeout)) {
 				/* Not sure if using this->easy_wakeup_config.timeout_delay is wise, where is it set from? */
