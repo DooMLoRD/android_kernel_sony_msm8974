@@ -1062,6 +1062,14 @@ config TOUCHSCREEN_GT9XX
 
           If unsure, say N.
 
+config TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
+	bool "Double tap to wake for clearpad"
+	depends on LCD_NOTIFY
+	help
+	  Say Y here if you want double tap to wake on clearpad.
+
+	  If unsure, say N
+
 source "drivers/input/touchscreen/gt9xx/Kconfig"
 
 endif
