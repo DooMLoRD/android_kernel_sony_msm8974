@@ -50,3 +50,8 @@ config LCD_NOTIFY
 	---help---
 	Allows LCD on/off event notification to be sent throughout the kernel
 
+config LCD_KCAL
+	depends on FB_MSM_MDSS
+	bool "Enable sysfs for LCD KCAL"
+	default n
+
