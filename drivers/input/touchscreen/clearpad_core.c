@@ -3297,7 +3297,11 @@ enable:
 	rc = request_threaded_irq(this->irq,
 				synaptics_clearpad_hard_handler,
 				synaptics_clearpad_threaded_handler,
-				IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+				IRQF_TRIGGER_FALLING | IRQF_ONESHOT
+#ifdef CONFIG_TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
+				| IRQF_NO_SUSPEND | IRQF_EARLY_RESUME
+#endif
+				,
 				this->pdev->dev.driver->name,
 				&this->pdev->dev);
 	if (rc) {
@@ -3628,7 +3632,7 @@ static int synaptics_clearpad_pm_resume(struct device *dev)
 static int synaptics_clearpad_pm_suspend_noirq(struct device *dev)
 {
 	struct synaptics_clearpad *this = dev_get_drvdata(dev);
-	if (this->irq_pending && device_may_wakeup(dev)) {
+	if ((this->irq_pending && device_may_wakeup(dev)) || this->easy_wakeup_config.gesture_enable) {
 		dev_info(&this->pdev->dev, "Need to resume\n");
 		return -EBUSY;
 	}
@@ -4394,7 +4398,11 @@ static int __devinit clearpad_probe(struct platform_device *pdev)
 	rc = request_threaded_irq(this->irq,
 				synaptics_clearpad_hard_handler,
 				synaptics_clearpad_threaded_handler,
-				IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+				IRQF_TRIGGER_FALLING | IRQF_ONESHOT
+#ifdef CONFIG_TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
+				| IRQF_NO_SUSPEND | IRQF_EARLY_RESUME
+#endif
+				,
 				this->pdev->dev.driver->name,
 				&this->pdev->dev);
 	if (rc) {
