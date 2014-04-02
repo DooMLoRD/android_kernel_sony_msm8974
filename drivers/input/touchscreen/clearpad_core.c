@@ -481,9 +481,12 @@ struct synaptics_clearpad {
 
 #ifdef CONFIG_TOUCHSCREEN_DOUBLE_TAP_TO_WAKE
 #define DOUBLE_TAP_TO_WAKE_TIMEOUT 700
+/* Hits on different areas shouldn't register as a double tap (e.g top and bottom) */
+#define DOUBLE_TAP_TO_WAKE_FEATHER 200
 /* Screen will always be on after boot */
 bool lcd_on = true;
 unsigned long d2w_timeout;
+static int previous_x, previous_y;
 
 static struct evgen_record double_tap[] = {
 	{
@@ -533,6 +536,22 @@ static int lcd_notifier_callback(struct notifier_block *this, unsigned long even
 	}
 
 	return 0;
+}
+
+/* From doubletap2wake.c */
+static unsigned int calc_feather(int coord, int prev_coord)
+{
+	int calc_coord = 0;
+	calc_coord = coord-prev_coord;
+	if (calc_coord < 0)
+		calc_coord = calc_coord * (-1);
+	return calc_coord;
+}
+
+static bool is_close_to_previous_hit(int x, int y)
+{
+	return (calc_feather(x, previous_x) < DOUBLE_TAP_TO_WAKE_FEATHER)
+		&& (calc_feather(y, previous_y) < DOUBLE_TAP_TO_WAKE_FEATHER);
 }
 #endif
 
@@ -2284,9 +2303,16 @@ static void synaptics_funcarea_up(struct synaptics_clearpad *this,
 				d2w_timeout = jiffies + msecs_to_jiffies(DOUBLE_TAP_TO_WAKE_TIMEOUT);
 				LOG_CHECK(this, "D2W: now: %u | new timeout: %u", jiffies_to_msecs(jiffies), jiffies_to_msecs(d2w_timeout));
 			} else {
-				LOG_CHECK(this, "D2W: Unlock!");
-				evgen_execute(this->input, this->evgen_blocks, "double_tap");
+				if (is_close_to_previous_hit(cur->x, cur->y)) {
+					LOG_CHECK(this, "D2W: Unlock!");
+					evgen_execute(this->input, this->evgen_blocks, "double_tap");
+				} else {
+					LOG_CHECK(this, "D2W: Second tap too far off");
+				}
 			}
+
+			previous_x = cur->x;
+			previous_y = cur->y;
 		}
 #endif
 		input_mt_slot(idev, pointer->cur.id);
