@@ -473,6 +473,16 @@ static void get_krait_bin_format_b(struct platform_device *pdev,
 
 	dev_info(&pdev->dev, "PVS version: %d\n", *pvs_ver);
 
+#ifdef CONFIG_CPU_OC
+	dev_info(&pdev->dev, "DooMLoRD: Forcing CPU OC!\n");
+	*speed = 1;
+	*pvs = 3;
+	*pvs_ver = 0;
+	dev_info(&pdev->dev, "CPU OC: Speed bin: %d\n", *speed);
+	dev_info(&pdev->dev, "CPU OC: PVS bin: %d\n", *pvs);
+	dev_info(&pdev->dev, "CPU OC: PVS version: %d\n", *pvs_ver);
+#endif
+
 	devm_iounmap(&pdev->dev, base);
 }
 
