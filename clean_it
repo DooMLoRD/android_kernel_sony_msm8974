@@ -9,3 +9,7 @@ CUR_TC=/home/doomlord/android-toolchain-eabi-linaro-4.6-2011.10/bin/
 ### cleaning
 ARCH=arm CROSS_COMPILE=${CUR_TC}arm-eabi- make distclean
 #ARCH=arm CROSS_COMPILE=~/arm-linux-androideabi-4.7/bin/arm-linux-androideabi- make distclean
+
+### delete additional generated files
+rm ./arch/arm/boot/zImage-dtb
+rm ./arch/arm/mach-msm/smd_rpc_sym.c
