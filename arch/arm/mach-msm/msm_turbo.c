@@ -21,10 +21,10 @@
 #include <linux/cpumask.h>
 
 #ifdef CONFIG_TURBO_BOOST
-#ifdef CONFIG_OC_ULTIMATE
-#define STOCK_CPU_MAX_SPEED	2572800
+#if 1
+#define STOCK_CPU_MAX_SPEED	2419200
 #else
-#define STOCK_CPU_MAX_SPEED	2265600
+#define STOCK_CPU_MAX_SPEED	2150400
 #endif
 #endif
 
