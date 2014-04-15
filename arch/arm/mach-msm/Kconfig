@@ -2016,11 +2016,11 @@ config CPU_OC
 	  Unlock the CPU Overclock freq speed @ 2.3 GHz
 
 config OC_ULTIMATE
-	bool "allow 2.496 GHz max OC option"
+	bool "allow 2.419 GHz max OC option"
 	depends on CPU_OC
 	default n
 	help
-	  Unlock the ultimate Overclock freq speed @ 2.496 GHz
+	  Unlock the ultimate Overclock freq speed @ 2.419 GHz
 
 endif # CPU_FREQ_MSM
 
