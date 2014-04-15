@@ -28,7 +28,11 @@
 
 //#define DEBUG_CPU_LIMITER
 
+#ifdef CONFIG_MSM_CPU_FREQ_SET_MIN_MAX
+uint32_t limited_max_freq = CONFIG_MSM_CPU_FREQ_MAX;
+#else
 uint32_t limited_max_freq = 2265600;
+#endif
 
 static int update_cpu_max_freq(int cpu, uint32_t max_freq)
 {
