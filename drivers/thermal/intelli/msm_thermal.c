@@ -53,6 +53,7 @@ static struct msm_thermal_data msm_thermal_info = {
 };
 static uint32_t limited_max_freq_thermal = MSM_CPUFREQ_NO_LIMIT;
 static struct delayed_work check_temp_work;
+static struct workqueue_struct *intellithermal_wq;
 static bool core_control_enabled;
 static uint32_t cpus_offlined;
 static DEFINE_MUTEX(core_control_mutex);
@@ -262,7 +263,7 @@ static void __ref check_temp(struct work_struct *work)
 	//pr_info("msm_thermal: worker is alive!\n");
 reschedule:
 	if (enabled)
-		schedule_delayed_work(&check_temp_work,
+		queue_delayed_work(intellithermal_wq, &check_temp_work,
 				msecs_to_jiffies(msm_thermal_info.poll_ms));
 }
 
@@ -299,10 +300,7 @@ static void __ref disable_msm_thermal(void)
 {
 	int cpu = 0;
 
-	
-	cancel_delayed_work_sync(&check_temp_work);
-	//flush_scheduled_work();
-
+	flush_workqueue(intellithermal_wq);
 
 	for_each_possible_cpu(cpu) {
 		update_cpu_max_freq(cpu, MSM_CPUFREQ_NO_LIMIT);
@@ -320,7 +318,8 @@ static int __ref set_enabled(const char *val, const struct kernel_param *kp)
 	} else {
 		if (!enabled) {
 			enabled = 1;
-			schedule_delayed_work(&check_temp_work, 0);
+			queue_delayed_work(intellithermal_wq,
+					   &check_temp_work, 0);
 			pr_info("msm_thermal: rescheduling...\n");
 		} else
 			pr_info("msm_thermal: already running...\n");
@@ -579,8 +578,10 @@ int __init msm_thermal_init(struct msm_thermal_data *pdata)
 	enabled = 1;
 	if (num_possible_cpus() > 1)
 		core_control_enabled = 1;
+	intellithermal_wq = alloc_workqueue("intellithermal",
+				WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
 	INIT_DELAYED_WORK(&check_temp_work, check_temp);
-	schedule_delayed_work(&check_temp_work, 0);
+	queue_delayed_work(intellithermal_wq, &check_temp_work, 0);
 
 	if (num_possible_cpus() > 1)
 		register_cpu_notifier(&msm_thermal_cpu_notifier);
