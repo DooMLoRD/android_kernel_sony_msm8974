@@ -453,6 +453,8 @@ obj-$(CONFIG_MSM_SLEEPER) += msm-sleeper.o
 
 obj-$(CONFIG_LCD_KCAL) += board_kcal.o kcal_ctrl.o
 
+obj-$(CONFIG_HAS_MACH_MEMUTILS) += memutils/
+
 obj-$(CONFIG_ARCH_RANDOM) += early_random.o
 obj-$(CONFIG_PERFMAP) += perfmap.o
 obj-$(CONFIG_RAMDUMP_TAGS) += board-rdtags.o
