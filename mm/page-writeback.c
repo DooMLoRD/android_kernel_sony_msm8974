@@ -1591,7 +1591,7 @@ void writeback_set_ratelimit(void)
 		ratelimit_pages = 16;
 }
 
-static int 
+static int __cpuinit
 ratelimit_handler(struct notifier_block *self, unsigned long u, void *v)
 {
 	writeback_set_ratelimit();

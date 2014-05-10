@@ -947,7 +947,7 @@ EXPORT_SYMBOL_GPL(rcu_barrier);
 /*
  * Initialize preemptible RCU's per-CPU data.
  */
-static void rcu_preempt_init_percpu_data(int cpu)
+static void __cpuinit rcu_preempt_init_percpu_data(int cpu)
 {
 	rcu_init_percpu_data(cpu, &rcu_preempt_state, 1);
 }
