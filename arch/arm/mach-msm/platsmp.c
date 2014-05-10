@@ -47,7 +47,7 @@ volatile int pen_release = -1;
  * observers, irrespective of whether they're taking part in coherency
  * or not.  This is necessary for the hotplug code to work reliably.
  */
-void write_pen_release(int val)
+void __cpuinit write_pen_release(int val)
 {
 	pen_release = val;
 	smp_wmb();
@@ -57,7 +57,7 @@ void write_pen_release(int val)
 
 static DEFINE_SPINLOCK(boot_lock);
 
-void platform_secondary_init(unsigned int cpu)
+void __cpuinit platform_secondary_init(unsigned int cpu)
 {
 	WARN_ON(msm_platform_secondary_init(cpu));
 
@@ -81,7 +81,7 @@ void platform_secondary_init(unsigned int cpu)
 	spin_unlock(&boot_lock);
 }
 
-static int release_secondary_sim(unsigned long base, unsigned int cpu)
+static int __cpuinit release_secondary_sim(unsigned long base, unsigned int cpu)
 {
 	void *base_ptr = ioremap_nocache(base + (cpu * 0x10000), SZ_4K);
 	if (!base_ptr)
@@ -95,7 +95,7 @@ static int release_secondary_sim(unsigned long base, unsigned int cpu)
 	return 0;
 }
 
-static int scorpion_release_secondary(void)
+static int __cpuinit scorpion_release_secondary(void)
 {
 	void *base_ptr = ioremap_nocache(0x00902000, SZ_4K*2);
 	if (!base_ptr)
@@ -111,7 +111,7 @@ static int scorpion_release_secondary(void)
 	return 0;
 }
 
-static int msm8960_release_secondary(unsigned long base,
+static int __cpuinit msm8960_release_secondary(unsigned long base,
 						unsigned int cpu)
 {
 	void *base_ptr = ioremap_nocache(base + (cpu * 0x10000), SZ_4K);
@@ -143,7 +143,7 @@ static int msm8960_release_secondary(unsigned long base,
 	return 0;
 }
 
-static int msm8974_release_secondary(unsigned long base,
+static int __cpuinit msm8974_release_secondary(unsigned long base,
 						unsigned int cpu)
 {
 	void *base_ptr = ioremap_nocache(base + (cpu * 0x10000), SZ_4K);
@@ -170,7 +170,7 @@ static int msm8974_release_secondary(unsigned long base,
 	return 0;
 }
 
-static int arm_release_secondary(unsigned long base, unsigned int cpu)
+static int __cpuinit arm_release_secondary(unsigned long base, unsigned int cpu)
 {
 	void *base_ptr = ioremap_nocache(base + (cpu * 0x10000), SZ_4K);
 	if (!base_ptr)
@@ -205,7 +205,7 @@ static int arm_release_secondary(unsigned long base, unsigned int cpu)
 	return 0;
 }
 
-static int release_from_pen(unsigned int cpu)
+static int __cpuinit release_from_pen(unsigned int cpu)
 {
 	unsigned long timeout;
 
@@ -255,7 +255,7 @@ static int release_from_pen(unsigned int cpu)
 
 DEFINE_PER_CPU(int, cold_boot_done);
 
-int scorpion_boot_secondary(unsigned int cpu,
+int __cpuinit scorpion_boot_secondary(unsigned int cpu,
 				      struct task_struct *idle)
 {
 	pr_debug("Starting secondary CPU %d\n", cpu);
@@ -267,7 +267,7 @@ int scorpion_boot_secondary(unsigned int cpu,
 	return release_from_pen(cpu);
 }
 
-int msm8960_boot_secondary(unsigned int cpu, struct task_struct *idle)
+int __cpuinit msm8960_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	pr_debug("Starting secondary CPU %d\n", cpu);
 
@@ -278,7 +278,7 @@ int msm8960_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	return release_from_pen(cpu);
 }
 
-int msm8974_boot_secondary(unsigned int cpu, struct task_struct *idle)
+int __cpuinit msm8974_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	pr_debug("Starting secondary CPU %d\n", cpu);
 
@@ -293,7 +293,7 @@ int msm8974_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	return release_from_pen(cpu);
 }
 
-int arm_boot_secondary(unsigned int cpu, struct task_struct *idle)
+int __cpuinit arm_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	pr_debug("Starting secondary CPU %d\n", cpu);
 

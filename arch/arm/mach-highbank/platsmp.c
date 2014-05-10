@@ -25,12 +25,12 @@
 
 extern void secondary_startup(void);
 
-void platform_secondary_init(unsigned int cpu)
+void __cpuinit platform_secondary_init(unsigned int cpu)
 {
 	gic_secondary_init(0);
 }
 
-int boot_secondary(unsigned int cpu, struct task_struct *idle)
+int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	gic_raise_softirq(cpumask_of(cpu), 0);
 	return 0;

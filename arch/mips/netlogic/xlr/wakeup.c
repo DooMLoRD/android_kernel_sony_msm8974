@@ -48,7 +48,7 @@
 #include <asm/netlogic/xlr/iomap.h>
 #include <asm/netlogic/xlr/pic.h>
 
-int xlr_wakeup_secondary_cpus(void)
+int __cpuinit xlr_wakeup_secondary_cpus(void)
 {
 	unsigned int i, boot_cpu;
 

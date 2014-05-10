@@ -340,7 +340,7 @@ void __init smp_callin(void)
 /*
  * Bring one cpu online.
  */
-int smp_boot_one_cpu(int cpuid)
+int __cpuinit smp_boot_one_cpu(int cpuid)
 {
 	const struct cpuinfo_parisc *p = &per_cpu(cpu_data, cpuid);
 	struct task_struct *idle;
@@ -455,7 +455,7 @@ void smp_cpus_done(unsigned int cpu_max)
 }
 
 
-int __cpu_up(unsigned int cpu)
+int __cpuinit __cpu_up(unsigned int cpu)
 {
 	if (cpu != 0 && cpu < parisc_max_cpus)
 		smp_boot_one_cpu(cpu);

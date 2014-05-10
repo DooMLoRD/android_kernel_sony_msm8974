@@ -42,7 +42,7 @@ static __cpuinitdata int nr_warps;
 /*
  * TSC-warp measurement loop running on both CPUs:
  */
-static void check_tsc_warp(unsigned int timeout)
+static __cpuinit void check_tsc_warp(unsigned int timeout)
 {
 	cycles_t start, now, prev, end;
 	int i;
@@ -121,7 +121,7 @@ static inline unsigned int loop_timeout(int cpu)
  * Source CPU calls into this - it waits for the freshly booted
  * target CPU to arrive and then starts the measurement:
  */
-void check_tsc_sync_source(int cpu)
+void __cpuinit check_tsc_sync_source(int cpu)
 {
 	int cpus = 2;
 
@@ -187,7 +187,7 @@ void check_tsc_sync_source(int cpu)
 /*
  * Freshly booted CPUs call into this:
  */
-void check_tsc_sync_target(void)
+void __cpuinit check_tsc_sync_target(void)
 {
 	int cpus = 2;
 
