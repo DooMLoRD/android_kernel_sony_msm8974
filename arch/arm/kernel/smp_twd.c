@@ -257,7 +257,7 @@ static int twd_timer_setup(struct clock_event_device *clk)
 	return 0;
 }
 
-static struct local_timer_ops twd_lt_ops = {
+static struct local_timer_ops twd_lt_ops __cpuinitdata = {
 	.setup	= twd_timer_setup,
 	.stop	= twd_timer_stop,
 };
