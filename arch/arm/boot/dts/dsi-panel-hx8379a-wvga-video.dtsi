@@ -38,7 +38,6 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -81,14 +80,47 @@
 				00 00 00 00
 			39 01 00 00 00 00 24
 				E0 79 05 0F
-				14 26 20 3F
-				2A 43 04 0C
-				11 15 17 15
-				15 10 13 05
-				0F 14 26 20
-				3F 2A 43 04
-				0C 11 15 17
-				15 15 10 13
+				14 23 24 3F
+				30 46 06 10
+				13 16 17 16
+				16 13 18 05
+				0F 14 23 24
+				3F 30 46 06
+				10 13 16 17
+				16 16 13 18
+			39 01 00 00 00 00 80
+				C1 01 00 07
+				10 17 1D 2A
+				33 3A 43 4A
+				52 5B 64 6D
+				78 7F 88 90
+				98 A0 A9 B2
+				B9 C1 C9 D1
+				D7 DF E6 ED
+				F4 FA FD 00
+				00 00 00 00
+				00 00 00 00
+				00 08 10 18
+				20 28 30 38
+				40 47 4F 58
+				60 68 70 78
+				80 88 90 98
+				A0 A9 B1 B9
+				C1 C9 D1 D8
+				E0 E8 F0 F9
+				FE 00 00 00
+				00 00 00 00
+				00 00 00 08
+				10 18 1E 26
+				2E 34 3A 41
+				49 4F 58 5E
+				67 6F 77 80
+				88 8F 97 9F
+				A7 AF B8 BF
+				C7 D1 D8 E3
+				EA F6 FF 00
+				00 00 00 00
+				00 00 00 00
 			23 01 00 00 00 00 02
 				cc 02
 			39 01 00 00 00 00 05
@@ -104,8 +136,8 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <2>;
-		qcom,mdss-dsi-lane-map = <1>;
+		qcom,mdss-dsi-traffic-mode = "burst_mode";
+		qcom,mdss-dsi-lane-map = "lane_map_3012";
 		qcom,mdss-dsi-bllp-eof-power-mode;
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
@@ -115,8 +147,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x1b>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <4>;
-		qcom,mdss-dsi-mdp-trigger = <0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 		qcom,mdss-dsi-reset-sequence = <1 20>, <0 2>, <1 20>;
 

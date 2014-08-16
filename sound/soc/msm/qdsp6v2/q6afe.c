@@ -648,7 +648,7 @@ static int afe_send_hw_delay(u16 port_id, u32 rate)
 		ret = get_hw_delay(RX_CAL, &delay_entry);
 
 	if (ret != 0) {
-		pr_warn("%s: Failed to get hw delay info\n", __func__);
+		pr_debug("%s: Failed to get hw delay info\n", __func__);
 		goto fail_cmd;
 	}
 	index = q6audio_get_port_index(port_id);
@@ -2879,7 +2879,14 @@ int afe_close(int port_id)
 	uint16_t port_index;
 
 	if (this_afe.apr == NULL) {
-		pr_err("AFE is already closed\n");
+		pr_err("%s: AFE is already closed\n", __func__);
+		if ((port_id == RT_PROXY_DAI_001_RX) ||
+		    (port_id == RT_PROXY_DAI_002_TX))
+			pcm_afe_instance[port_id & 0x1] = 0;
+		if ((port_id == RT_PROXY_DAI_002_RX) ||
+		    (port_id == RT_PROXY_DAI_001_TX))
+			proxy_afe_instance[port_id & 0x1] = 0;
+		afe_close_done[port_id & 0x1] = true;
 		ret = -EINVAL;
 		goto fail_cmd;
 	}

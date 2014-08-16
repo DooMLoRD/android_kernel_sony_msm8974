@@ -1,4 +1,5 @@
 /* Copyright (c) 2008-2013, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,6 +19,8 @@
 #include <linux/list.h>
 #include <linux/msm_mdp.h>
 #include <linux/types.h>
+#include <linux/notifier.h>
+#include <linux/workqueue.h>
 
 #include "mdss_panel.h"
 
@@ -32,6 +35,8 @@
 #define WAIT_DISP_OP_TIMEOUT ((WAIT_FENCE_FIRST_TIMEOUT + \
 		WAIT_FENCE_FINAL_TIMEOUT) * MDP_MAX_FENCE_FD)
 
+#define SPLASH_THREAD_WAIT_TIMEOUT 3
+
 #ifndef MAX
 #define  MAX(x, y) (((x) > (y)) ? (x) : (y))
 #endif
@@ -39,6 +44,37 @@
 #ifndef MIN
 #define  MIN(x, y) (((x) < (y)) ? (x) : (y))
 #endif
+
+/**
+ * enum mdp_notify_event - Different frame events to indicate frame update state
+ *
+ * @MDP_NOTIFY_FRAME_BEGIN:	Frame update has started, the frame is about to
+ *				be programmed into hardware.
+ * @MDP_NOTIFY_FRAME_READY:	Frame ready to be kicked off, this can be used
+ *				as the last point in time to synchronized with
+ *				source buffers before kickoff.
+ * @MDP_NOTIFY_FRAME_FLUSHED:	Configuration of frame has been flushed and
+ *				DMA transfer has started.
+ * @MDP_NOTIFY_FRAME_DONE:	Frame DMA transfer has completed.
+ *				- For video mode panels this will indicate that
+ *				  previous frame has been replaced by new one.
+ *				- For command mode/writeback frame done happens
+ *				  as soon as the DMA of the frame is done.
+ * @MDP_NOTIFY_FRAME_TIMEOUT:	Frame DMA transfer has failed to complete within
+ *				a fair amount of time.
+ */
+enum mdp_notify_event {
+	MDP_NOTIFY_FRAME_BEGIN = 1,
+	MDP_NOTIFY_FRAME_READY,
+	MDP_NOTIFY_FRAME_FLUSHED,
+	MDP_NOTIFY_FRAME_DONE,
+	MDP_NOTIFY_FRAME_TIMEOUT,
+};
+
+enum mdp_splash_event {
+	MDP_CREATE_SPLASH_OV = 0,
+	MDP_REMOVE_SPLASH_OV,
+};
 
 struct disp_info_type_suspend {
 	int op_enable;
@@ -57,13 +93,17 @@ struct msm_sync_pt_data {
 	char *fence_name;
 	u32 acq_fen_cnt;
 	struct sync_fence *acq_fen[MDP_MAX_FENCE_FD];
-	int cur_rel_fen_fd;
-	struct sync_pt *cur_rel_sync_pt;
-	struct sync_fence *cur_rel_fence;
+
 	struct sw_sync_timeline *timeline;
 	int timeline_value;
 	u32 threshold;
+
+	atomic_t commit_cnt;
+	bool flushed;
+	bool async_wait_fences;
+
 	struct mutex sync_mutex;
+	struct notifier_block notifier;
 };
 
 struct msm_fb_data_type;
@@ -75,11 +115,12 @@ struct msm_mdp_interface {
 	int (*on_fnc)(struct msm_fb_data_type *mfd);
 	int (*off_fnc)(struct msm_fb_data_type *mfd);
 	/* called to release resources associated to the process */
-	int (*release_fnc)(struct msm_fb_data_type *mfd);
+	int (*release_fnc)(struct msm_fb_data_type *mfd, bool release_all);
 	int (*kickoff_fnc)(struct msm_fb_data_type *mfd,
 					struct mdp_display_commit *data);
 	int (*ioctl_handler)(struct msm_fb_data_type *mfd, u32 cmd, void *arg);
-	void (*dma_fnc)(struct msm_fb_data_type *mfd);
+	void (*dma_fnc)(struct msm_fb_data_type *mfd, struct mdp_overlay *req,
+				int image_len, int *pipe_ndx);
 	int (*cursor_update)(struct msm_fb_data_type *mfd,
 				struct fb_cursor *cursor);
 	int (*lut_update)(struct msm_fb_data_type *mfd, struct fb_cmap *cmap);
@@ -88,6 +129,7 @@ struct msm_mdp_interface {
 	int (*update_ad_input)(struct msm_fb_data_type *mfd);
 	int (*panel_register_done)(struct mdss_panel_data *pdata);
 	u32 (*fb_stride)(u32 fb_index, u32 xres, int bpp);
+	int (*splash_fnc) (struct msm_fb_data_type *mfd, int *index, int req);
 	struct msm_sync_pt_data *(*get_sync_fnc)(struct msm_fb_data_type *mfd,
 				const struct mdp_buf_sync *buf_sync);
 	void *private1;
@@ -103,6 +145,11 @@ struct mdss_fb_proc_info {
 	int pid;
 	u32 ref_cnt;
 	struct list_head list;
+};
+
+struct msm_fb_backup_type {
+	struct fb_info info;
+	struct mdp_display_commit disp_commit;
 };
 
 struct msm_fb_data_type {
@@ -159,20 +206,27 @@ struct msm_fb_data_type {
 	struct msm_sync_pt_data mdp_sync_pt_data;
 
 	/* for non-blocking */
-	struct completion commit_comp;
-	u32 is_committing;
-	struct work_struct commit_work;
-	void *msm_fb_backup;
+	struct task_struct *disp_thread;
+	atomic_t commits_pending;
+	wait_queue_head_t commit_wait_q;
+	wait_queue_head_t idle_wait_q;
+	bool shutdown_pending;
+
+	struct task_struct *splash_thread;
+
+	struct msm_fb_backup_type msm_fb_backup;
 	struct completion power_set_comp;
 	u32 is_power_setting;
 
 	u32 dcm_state;
 	struct list_head proc_list;
-};
 
-struct msm_fb_backup_type {
-	struct fb_info info;
-	struct mdp_display_commit disp_commit;
+	/* speed up wakeup */
+	/* do unblank (>150ms) on own kworker
+	 * so we don't starve other works
+	 */
+	struct workqueue_struct *unblank_kworker;
+	struct work_struct unblank_work;
 };
 
 static inline void mdss_fb_update_notify_update(struct msm_fb_data_type *mfd)

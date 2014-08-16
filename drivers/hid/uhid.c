@@ -1,6 +1,7 @@
 /*
  * User-space I/O driver support for HID subsystem
  * Copyright (c) 2012 David Herrmann
+ * Copyright (c) 2013 Sony Mobile Communications AB.
  */
 
 /*

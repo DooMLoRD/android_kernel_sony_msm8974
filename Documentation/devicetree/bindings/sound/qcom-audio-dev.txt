@@ -4,22 +4,28 @@ Qualcomm audio devices for ALSA sound SoC
 
 Required properties:
 
- - compatible : "qcom,msm-pcm-dsp"
+ - compatible : "qti,msm-pcm-dsp"
 
- - qcom,msm-pcm-dsp-id : device node id
+ - qti,msm-pcm-dsp-id : device node id
 
 * msm-pcm-low-latency
 
 Required properties:
 
- - compatible : "qcom,msm-pcm-dsp"
+ - compatible : "qti,msm-pcm-dsp"
 
- - qcom,msm-pcm-dsp-id : device node id
+ - qti,msm-pcm-dsp-id : device node id
 
    Optional properties
 
-      - qcom,msm-pcm-low-latency : Flag indicating whether
+      - qti,msm-pcm-low-latency : Flag indicating whether
         the device node is of type low latency.
+
+      - qti,latency-level : Flag indicating whether the device node
+                            is of type regular low latency or ultra
+                            low latency.
+                            regular : regular low latency stream
+                            ultra : ultra low latency stream
 
 * msm-pcm-routing
 
@@ -101,6 +107,12 @@ Required properties:
 Required properties:
 
  - compatible : "qcom,msm-lsm-client"
+
+* msm-pcm-loopback
+
+Required properties:
+
+ - compatible : "qti,msm-pcm-loopback"
 
 * msm-dai-q6
 
@@ -220,16 +232,16 @@ Required properties:
 
 Example:
 
-        qcom,msm-pcm {
-		compatible = "qcom,msm-pcm-dsp";
-		qcom,msm-pcm-dsp-id = <0>;
+	qti,msm-pcm {
+		compatible = "qti,msm-pcm-dsp";
+		qti,msm-pcm-dsp-id = <0>;
 	};
 
-	qcom,msm-pcm-low-latency {
-		compatible = "qcom,msm-pcm-dsp";
-		qcom,msm-pcm-dsp-id = <1>;
-		qcom,msm-pcm-low-latency;
-        };
+	qti,msm-pcm-low-latency {
+		compatible = "qti,msm-pcm-dsp";
+		qti,msm-pcm-dsp-id = <1>;
+		qti,msm-pcm-low-latency;
+	};
 
         qcom,msm-pcm-routing {
                 compatible = "qcom,msm-pcm-routing";
@@ -407,6 +419,17 @@ Example:
 Required properties:
 - compatible : "qcom,msm8974-audio-taiko"
 - qcom,model : The user-visible name of this sound card.
+- reg : Offset and length of the register region(s) for MI2S/PCM MUX
+- reg-names : Register region name(s) referenced in reg above
+	 Required register resource entries are:
+	 "lpaif_pri_mode_muxsel": Physical address of MUX to select between
+				  Primary PCM and Primary MI2S
+	 "lpaif_sec_mode_muxsel": Physical address of MUX to select between
+				  Secondary PCM and Secondary MI2S
+	 "lpaif_tert_mode_muxsel": Physical address of MUX to select between
+				   Primary PCM and Tertiary MI2S
+	 "lpaif_quat_mode_muxsel": Physical address of MUX to select between
+				   Secondary PCM and Quarternary MI2S
 - qcom,audio-routing : A list of the connections between audio components.
   Each entry is a pair of strings, the first being the connection's sink,
   the second being the connection's source.

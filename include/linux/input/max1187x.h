@@ -1,7 +1,7 @@
 /* include/linux/input/max1187x.h
  *
  * Copyright (c)2013 Maxim Integrated Products, Inc.
- * Copyright (C) 2012-2013 Sony Mobile Communications AB.
+ * Copyright (C) 2012-2014 Sony Mobile Communications AB.
  *
  * Driver Version: 3.1.8
  * Release Date: May 10, 2013
@@ -59,6 +59,9 @@ struct max1187x_pdata {
 	u32	button_code1;
 	u32	button_code2;
 	u32	button_code3;
+	u32	pressure_enabled;
+	u32	size_enabled;
+	u32	orientation_enabled;
 	u32	enable_resume_por;
 };
 

@@ -586,6 +586,9 @@ struct slim_controller {
  * @device_down: This callback is called when device reports absent, or the
  *		bus goes down. Device will report present when bus is up and
  *		device_up callback will be called again when that happens
+ * @reset_device: This callback is called after framer is booted.
+ *		Driver should do the needful to reset the device,
+ *		so that device acquires sync and be operational.
  * @driver: Slimbus device drivers should initialize name and owner field of
  *	this structure
  * @id_table: List of slimbus devices supported by this driver
@@ -599,6 +602,8 @@ struct slim_driver {
 	int				(*resume)(struct slim_device *sldev);
 	int				(*device_up)(struct slim_device *sldev);
 	int				(*device_down)
+						(struct slim_device *sldev);
+	int				(*reset_device)
 						(struct slim_device *sldev);
 
 	struct device_driver		driver;
@@ -1036,6 +1041,16 @@ extern int slim_assign_laddr(struct slim_controller *ctrl, const u8 *e_addr,
 void slim_report_absent(struct slim_device *sbdev);
 
 /*
+ * slim_framer_booted: This function is called by controller after the active
+ * framer has booted (using Bus Reset sequence, or after it has shutdown and has
+ * come back up). Components, devices on the bus may be in undefined state,
+ * and this function triggers their drivers to do the needful
+ * to bring them back in Reset state so that they can acquire sync, report
+ * present and be operational again.
+ */
+void slim_framer_booted(struct slim_controller *ctrl);
+
+/*
  * slim_msg_response: Deliver Message response received from a device to the
  *	framework.
  * @ctrl: Controller handle
@@ -1077,7 +1092,7 @@ extern void slim_ctrl_add_boarddevs(struct slim_controller *ctrl);
 extern int slim_register_board_info(struct slim_boardinfo const *info,
 					unsigned n);
 #else
-int slim_register_board_info(struct slim_boardinfo const *info,
+static inline int slim_register_board_info(struct slim_boardinfo const *info,
 					unsigned n)
 {
 	return 0;

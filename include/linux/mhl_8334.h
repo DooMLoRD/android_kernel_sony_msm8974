@@ -150,6 +150,7 @@ struct mhl_tx_ctrl {
 	struct usb_ext_notification *mhl_info;
 	bool disc_enabled;
 	struct power_supply mhl_psy;
+	struct power_supply *batt_psy;
 	bool vbus_active;
 	int current_val;
 	int max_current_val;
