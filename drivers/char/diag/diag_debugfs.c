@@ -105,6 +105,9 @@ static ssize_t diag_dbgfs_read_status(struct file *file, char __user *ubuf,
 		"RIVA CNTL in_buf_1_size: %d\n"
 		"Modem DCI in_buf_1_size: %d\n"
 		"Modem DCI CMD in_buf_1_size: %d\n"
+		"Received Feature mask from Modem: %d\n"
+		"Received Feature mask from LPASS: %d\n"
+		"Received Feature mask from WCNSS: %d\n"
 		"logging_mode: %d\n"
 		"real_time_mode: %d\n",
 		(unsigned int)driver->smd_data[MODEM_DATA].ch,
@@ -171,6 +174,9 @@ static ssize_t diag_dbgfs_read_status(struct file *file, char __user *ubuf,
 		(unsigned int)driver->smd_cntl[WCNSS_DATA].buf_in_1_size,
 		(unsigned int)driver->smd_dci[MODEM_DATA].buf_in_1_size,
 		(unsigned int)driver->smd_dci_cmd[MODEM_DATA].buf_in_1_size,
+		driver->rcvd_feature_mask[MODEM_DATA],
+		driver->rcvd_feature_mask[LPASS_DATA],
+		driver->rcvd_feature_mask[WCNSS_DATA],
 		driver->logging_mode,
 		driver->real_time_mode);
 
@@ -189,7 +195,8 @@ static ssize_t diag_dbgfs_read_dcistats(struct file *file,
 				char __user *ubuf, size_t count, loff_t *ppos)
 {
 	char *buf = NULL;
-	int bytes_remaining, bytes_written = 0, bytes_in_buf = 0, i = 0;
+	unsigned int bytes_remaining, bytes_written = 0;
+	unsigned int bytes_in_buf = 0, i = 0;
 	struct diag_dci_data_info *temp_data = dci_data_smd;
 	int buf_size = (DEBUG_BUF_SIZE < count) ? DEBUG_BUF_SIZE : count;
 
@@ -353,9 +360,9 @@ static ssize_t diag_dbgfs_read_table(struct file *file, char __user *ubuf,
 	char *buf;
 	int ret = 0;
 	int i;
-	int bytes_remaining;
-	int bytes_in_buffer = 0;
-	int bytes_written;
+	unsigned int bytes_remaining;
+	unsigned int bytes_in_buffer = 0;
+	unsigned int bytes_written;
 	int buf_size = (DEBUG_BUF_SIZE < count) ? DEBUG_BUF_SIZE : count;
 
 	if (diag_dbgfs_table_index >= diag_max_reg) {
@@ -518,9 +525,9 @@ static ssize_t diag_dbgfs_read_bridge(struct file *file, char __user *ubuf,
 	char *buf;
 	int ret;
 	int i;
-	int bytes_remaining;
-	int bytes_in_buffer = 0;
-	int bytes_written;
+	unsigned int bytes_remaining;
+	unsigned int bytes_in_buffer = 0;
+	unsigned int bytes_written;
 	int buf_size = (DEBUG_BUF_SIZE < count) ? DEBUG_BUF_SIZE : count;
 	int bytes_hsic_inited = 45;
 	int bytes_hsic_not_inited = 410;
@@ -644,7 +651,7 @@ static int diag_dbgfs_read_mask_check_flag(void *data, u64 *val)
 static int diag_dbgfs_write_mask_check_flag(void *data, u64 val)
 {
 
-	if (val < 0 || val > 1)
+	if (val > 1)
 		return -EINVAL;
 
 	driver->mask_check = (int) val;

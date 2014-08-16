@@ -186,6 +186,22 @@ enum hal_domain {
 	HAL_UNUSED_DOMAIN = 0x10000000,
 };
 
+enum multi_stream {
+	HAL_VIDEO_DECODER_NONE = 0x00000000,
+	HAL_VIDEO_DECODER_PRIMARY = 0x00000001,
+	HAL_VIDEO_DECODER_SECONDARY = 0x00000002,
+	HAL_VIDEO_DECODER_BOTH_OUTPUTS = 0x00000004,
+	HAL_VIDEO_UNUSED_OUTPUTS = 0x10000000,
+};
+
+enum hal_core_capabilities {
+	HAL_VIDEO_ENCODER_ROTATION_CAPABILITY = 0x00000001,
+	HAL_VIDEO_ENCODER_SCALING_CAPABILITY = 0x00000002,
+	HAL_VIDEO_ENCODER_DEINTERLACE_CAPABILITY = 0x00000004,
+	HAL_VIDEO_DECODER_MULTI_STREAM_CAPABILITY = 0x00000008,
+	HAL_VIDEO_UNUSED_CAPABILITY      = 0x10000000,
+};
+
 enum hal_video_codec {
 	HAL_VIDEO_CODEC_UNKNOWN  = 0x00000000,
 	HAL_VIDEO_CODEC_MVC      = 0x00000001,
@@ -846,6 +862,7 @@ struct vidc_frame_data {
 	u32 mark_target;
 	u32 mark_data;
 	u32 clnt_data;
+	u32 extradata_size;
 };
 
 struct vidc_seq_hdr {
@@ -1045,6 +1062,14 @@ enum fw_info {
 	FW_INFO_MAX,
 };
 
+enum dev_info {
+	DEV_CLOCK_COUNT,
+	DEV_CLOCK_ENABLED,
+	DEV_PWR_COUNT,
+	DEV_PWR_ENABLED,
+	DEV_INFO_MAX
+};
+
 #define call_hfi_op(q, op, args...)			\
 	(((q) && (q)->op) ? ((q)->op(args)) : 0)
 
@@ -1098,11 +1123,14 @@ struct hfi_device {
 	int (*load_fw)(void *dev);
 	void (*unload_fw)(void *dev);
 	int (*get_fw_info)(void *dev, enum fw_info info);
+	int (*get_info) (void *dev, enum dev_info info);
 	int (*get_stride_scanline)(int color_fmt, int width,
 		int height,	int *stride, int *scanlines);
 	int (*capability_check)(u32 fourcc, u32 width,
 		u32 *max_width, u32 *max_height);
 	int (*session_clean)(void *sess);
+	int (*get_core_capabilities)(void);
+	int (*power_enable)(void *dev);
 };
 
 typedef void (*hfi_cmd_response_callback) (enum command_response cmd,

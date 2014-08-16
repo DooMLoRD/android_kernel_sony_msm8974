@@ -11,7 +11,7 @@
  *  $Date:: 2011-10-26 13:33:02 +0900#$ Date of last commit
  *
  *              Copyright (C) 2011 by Panasonic Co., Ltd.
- *              Copyright (C) 2012-2013 Sony Mobile Communications AB.
+ *              Copyright (C) 2012-2014 Sony Mobile Communications AB.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -36,6 +36,8 @@
  *                003 modified for SOMC platform
  *              : 2013/07/01    T.Ooka(*)
  *                004 fix power leakages from GPIOs
+ *              : 2014/01/23    T.Ooka(*)
+ *                005 modified some formats
  ******************************************************************************/
 #include <asm/irq.h>
 #include <linux/cdev.h>
@@ -310,7 +312,7 @@ static ssize_t tuner_module_power_ctrl(struct device *dev,
 	if (kstrtoul(buf, 0, &value))
 		return -EINVAL;
 
-	if (value == 0) {
+	if (!value) {
 		ret = tuner_drv_ctl_power(drvdata, TUNER_DRV_CTL_POWON);
 		if (ret)
 			return -EINVAL;
@@ -351,7 +353,7 @@ static ssize_t tuner_module_irq_ctrl(struct device *dev,
 	if (kstrtoul(buf, 0, &value))
 		return -EINVAL;
 
-	if (value == 0) {
+	if (!value) {
 		if (tuner_drv_set_interrupt(drvdata->gpios[TUNER_INT_PIN]))
 			return -EINVAL;
 	} else {
@@ -425,7 +427,36 @@ static int tuner_probe(struct platform_device *pdev)
 {
 	int ret;
 	int i;
+	struct device *dev = NULL;
 	struct tuner_drvdata *drvdata;
+
+	tnr_dev.mmtuner_device = platform_device_alloc(
+		D_TUNER_CONFIG_CLASS_NAME, -1);
+
+	if (!tnr_dev.mmtuner_device) {
+		ret = -ENOMEM;
+		goto err_platform_device_alloc;
+	}
+
+	ret = platform_device_add(tnr_dev.mmtuner_device);
+	if (ret)
+		goto err_platform_device_add;
+
+	tnr_dev.device_class = class_create(THIS_MODULE,
+		D_TUNER_CONFIG_CLASS_NAME);
+	if (IS_ERR(tnr_dev.device_class)) {
+		ret = PTR_ERR(tnr_dev.device_class);
+		goto err_class_create;
+	}
+
+	dev = device_create(tnr_dev.device_class, NULL,
+		MKDEV(D_TUNER_CONFIG_DRV_MAJOR, D_TUNER_CONFIG_DRV_MINOR),
+		NULL, D_TUNER_CONFIG_CLASS_NAME);
+
+	if (IS_ERR(dev)) {
+		ret = PTR_ERR(dev);
+		goto err_device_create;
+	}
 
 	drvdata = kzalloc(sizeof(struct tuner_drvdata), GFP_KERNEL);
 	if (!drvdata) {
@@ -493,10 +524,22 @@ err_create_file:
 err_gpio_init:
 	i2c_put_adapter(drvdata->adap);
 err_i2c_get_adapter:
+	unregister_chrdev(D_TUNER_CONFIG_DRV_MAJOR,
+		D_TUNER_CONFIG_DRIVER_NAME);
 err_register_device:
-	kfree(drvdata);
+	device_unregister(&drvdata->sysfs_dev);
 err_set_dev:
+	kzfree(drvdata);
 err_alloc_data:
+	device_destroy(tnr_dev.device_class, MKDEV(D_TUNER_CONFIG_DRV_MAJOR,
+		D_TUNER_CONFIG_DRV_MINOR));
+err_device_create:
+	class_destroy(tnr_dev.device_class);
+err_class_create:
+	platform_device_del(tnr_dev.mmtuner_device);
+err_platform_device_add:
+	platform_device_put(tnr_dev.mmtuner_device);
+err_platform_device_alloc:
 	return ret;
 }
 
@@ -513,6 +556,14 @@ static int __devexit tuner_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void tuner_shutdown(struct platform_device *pdev)
+{
+	device_destroy(tnr_dev.device_class, MKDEV(D_TUNER_CONFIG_DRV_MAJOR,
+		D_TUNER_CONFIG_DRV_MINOR));
+	class_destroy(tnr_dev.device_class);
+	platform_device_unregister(tnr_dev.mmtuner_device);
+}
+
 static struct of_device_id ej113_match_table[] = {
 {	.compatible = D_TUNER_CONFIG_MATCH_TABLE,
 },
@@ -522,6 +573,7 @@ static struct of_device_id ej113_match_table[] = {
 static struct platform_driver mmtuner_driver = {
 	.probe  = tuner_probe,
 	.remove = __exit_p(tuner_remove),
+	.shutdown = tuner_shutdown,
 	.driver = {
 		.name = D_TUNER_CONFIG_PLATFORM_DRIVER_NAME,
 		.owner = THIS_MODULE,
@@ -531,58 +583,11 @@ static struct platform_driver mmtuner_driver = {
 
 static int __init tuner_drv_start(void)
 {
-	int ret;
-	struct device *dev = NULL;
-
-	ret = platform_driver_register(&mmtuner_driver);
-	if (ret)
-		goto err_platform_driver_register;
-
-	tnr_dev.mmtuner_device = platform_device_alloc(
-		D_TUNER_CONFIG_CLASS_NAME, -1);
-
-	if (!tnr_dev.mmtuner_device) {
-		ret = -ENOMEM;
-		goto err_platform_device_alloc;
-	}
-
-	ret = platform_device_add(tnr_dev.mmtuner_device);
-	if (ret)
-		goto err_platform_device_add;
-
-	tnr_dev.device_class = class_create(THIS_MODULE,
-		D_TUNER_CONFIG_CLASS_NAME);
-	if (IS_ERR(tnr_dev.device_class)) {
-		ret = PTR_ERR(tnr_dev.device_class);
-		goto err_class_create;
-	}
-
-	dev = device_create(tnr_dev.device_class, NULL,
-		MKDEV(D_TUNER_CONFIG_DRV_MAJOR, D_TUNER_CONFIG_DRV_MINOR),
-		NULL, D_TUNER_CONFIG_CLASS_NAME);
-
-	if (IS_ERR(dev)) {
-		ret = PTR_ERR(dev);
-		goto err_device_create;
-	}
-
-	return 0;
-err_device_create:
-err_class_create:
-err_platform_device_add:
-	platform_device_put(tnr_dev.mmtuner_device);
-err_platform_device_alloc:
-	platform_driver_unregister(&mmtuner_driver);
-err_platform_driver_register:
-	return ret;
+	return platform_driver_register(&mmtuner_driver);
 }
 
 static void __exit tuner_drv_end(void)
 {
-	device_destroy(tnr_dev.device_class, MKDEV(D_TUNER_CONFIG_DRV_MAJOR,
-		D_TUNER_CONFIG_DRV_MINOR));
-	class_destroy(tnr_dev.device_class);
-	platform_device_unregister(tnr_dev.mmtuner_device);
 	platform_driver_unregister(&mmtuner_driver);
 }
 

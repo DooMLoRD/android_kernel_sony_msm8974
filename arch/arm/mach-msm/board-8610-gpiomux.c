@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -252,6 +252,30 @@ static struct msm_gpiomux_config msm_blsp_configs[] __initdata = {
 	},
 };
 
+static struct gpiomux_setting gpio_i2c_nfc_pvt_config = {
+		.func = GPIOMUX_FUNC_5, /*active 1*/ /* 0 */
+		.drv = GPIOMUX_DRV_2MA,
+		.pull = GPIOMUX_PULL_NONE,
+	};
+
+static struct msm_gpiomux_config msm_nfc_configs[] __initdata = {
+	{
+		.gpio   = 8,            /* BLSP1 QUP2 I2C_SDA */
+		.settings = {
+			[GPIOMUX_ACTIVE] = &gpio_i2c_nfc_pvt_config,
+			[GPIOMUX_SUSPENDED] = &gpio_i2c_nfc_pvt_config,
+		},
+	},
+	{
+		.gpio   = 9,            /* BLSP1 QUP2 I2C_SCL */
+		.settings = {
+			[GPIOMUX_ACTIVE] = &gpio_i2c_nfc_pvt_config,
+			[GPIOMUX_SUSPENDED] = &gpio_i2c_nfc_pvt_config,
+		},
+	},
+};
+
+
 static struct msm_gpiomux_config msm_atmel_configs[] __initdata = {
 	{
 		.gpio      = 0,		/* TOUCH RESET */
@@ -427,6 +451,29 @@ static struct gpiomux_setting cam_settings[] = {
 	},
 };
 
+static struct gpiomux_setting accel_interrupt_config = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_6MA,
+	.pull = GPIOMUX_PULL_DOWN,
+};
+
+static struct msm_gpiomux_config msm_non_qrd_configs[] __initdata = {
+	{
+		.gpio = 8, /* CAM1_STANDBY_N */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &cam_settings[3],
+			[GPIOMUX_SUSPENDED] = &gpio_suspend_config[1],
+		},
+	},
+	{
+		.gpio = 81,	/*ACCEL_INT1 */
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &accel_interrupt_config,
+			[GPIOMUX_SUSPENDED] = &accel_interrupt_config,
+		},
+	},
+};
+
 static struct msm_gpiomux_config msm_sensor_configs[] __initdata = {
 	{
 		.gpio = 13, /* CAM_MCLK0 */
@@ -597,6 +644,28 @@ static struct msm_gpiomux_config msm_interrupt_configs[] __initdata = {
 	},
 };
 
+static struct gpiomux_setting gpio_cdc_dmic_cfg = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_4MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+
+static struct msm_gpiomux_config msm_cdc_dmic_configs[] __initdata = {
+	{
+		.gpio = 100,	/* DMIC CLK */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gpio_cdc_dmic_cfg,
+		},
+	},
+	{
+		.gpio = 101,	/* DMIC DATA */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gpio_cdc_dmic_cfg,
+		},
+	},
+};
+
 void __init msm8610_init_gpiomux(void)
 {
 	int rc;
@@ -625,7 +694,16 @@ void __init msm8610_init_gpiomux(void)
 	msm_gpiomux_install(msm_sensor_configs, ARRAY_SIZE(msm_sensor_configs));
 	msm_gpiomux_install(msm_gpio_int_configs,
 			ARRAY_SIZE(msm_gpio_int_configs));
-	if (of_board_is_qrd())
+	if (of_board_is_qrd()) {
 		msm_gpiomux_install(msm_interrupt_configs,
 			ARRAY_SIZE(msm_interrupt_configs));
+		msm_gpiomux_install(msm_nfc_configs,
+			ARRAY_SIZE(msm_nfc_configs));
+	} else {
+		msm_gpiomux_install(msm_non_qrd_configs,
+			ARRAY_SIZE(msm_non_qrd_configs));
+	}
+	if (of_board_is_cdp())
+		msm_gpiomux_install(msm_cdc_dmic_configs,
+			ARRAY_SIZE(msm_cdc_dmic_configs));
 }

@@ -27,7 +27,7 @@ struct mmc_cd_gpio {
 #endif
 };
 
-static int mmc_cd_get_status(struct mmc_host *host)
+int mmc_cd_get_status(struct mmc_host *host)
 {
 	int ret = -ENOSYS;
 	struct mmc_cd_gpio *cd = host->hotplug.handler_priv;
@@ -52,9 +52,9 @@ int mmc_cd_slot_status_changed(struct mmc_host *host)
 
 	status = mmc_cd_get_status(host);
 	if (unlikely(status < 0))
-		goto out;
+		return 1;
 
-	if ((status == 0) || cd->irq_detect) {
+	if ((cd->irq_detect && status) || (!status && host->card)) {
 		cd->irq_detect = 0;
 		return 1;
 	}
@@ -149,8 +149,12 @@ void mmc_cd_gpio_free(struct mmc_host *host)
 {
 	struct mmc_cd_gpio *cd = host->hotplug.handler_priv;
 
+	if (!cd || !gpio_is_valid(cd->gpio))
+		return;
+
 	free_irq(host->hotplug.irq, host);
 	gpio_free(cd->gpio);
+	cd->gpio = -EINVAL;
 	kfree(cd);
 }
 EXPORT_SYMBOL(mmc_cd_gpio_free);

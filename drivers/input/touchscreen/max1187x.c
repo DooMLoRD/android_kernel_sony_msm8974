@@ -1,7 +1,7 @@
 /* drivers/input/touchscreen/max1187x.c
  *
  * Copyright (c)2013 Maxim Integrated Products, Inc.
- * Copyright (C) 2012-2013 Sony Mobile Communications AB.
+ * Copyright (C) 2012-2014 Sony Mobile Communications AB.
  *
  * Driver Version: 3.1.8
  * Release Date: May 10, 2013
@@ -706,10 +706,14 @@ static void report_down(struct data *ts,
 		input_mt_report_slot_state(idev, tool_type, true);
 		input_report_abs(idev, ABS_MT_POSITION_X, x);
 		input_report_abs(idev, ABS_MT_POSITION_Y, y);
-		input_report_abs(idev, ABS_MT_PRESSURE, z);
-		input_report_abs(idev, ABS_MT_ORIENTATION, orientation);
-		input_report_abs(idev, ABS_MT_TOUCH_MAJOR, touch_major);
-		input_report_abs(idev, ABS_MT_TOUCH_MINOR, touch_minor);
+		if (pdata->pressure_enabled)
+			input_report_abs(idev, ABS_MT_PRESSURE, z);
+		if (pdata->orientation_enabled)
+			input_report_abs(idev, ABS_MT_ORIENTATION, orientation);
+		if (pdata->size_enabled) {
+			input_report_abs(idev, ABS_MT_TOUCH_MAJOR, touch_major);
+			input_report_abs(idev, ABS_MT_TOUCH_MINOR, touch_minor);
+		}
 	}
 	dev_dbg(dev, "event: %s%s%s %u: [XY %4d %4d ][PMmO %4d %4d %4d %3d ]",
 		!(ts->list_finger_ids & (1 << id)) ? "DOWN" : "MOVE",
@@ -1870,6 +1874,27 @@ static struct max1187x_pdata *max1187x_get_platdata_dt(struct device *dev)
 		goto err_max1187x_get_platdata_dt;
 	}
 
+	/* Parse touch_pressure_enabled */
+	if (of_property_read_u32(devnode, "touch_pressure_enabled",
+		&pdata->pressure_enabled)) {
+		dev_err(dev, "Failed to get property: touch_pressure_enabled\n");
+		goto err_max1187x_get_platdata_dt;
+	}
+
+	/* Parse touch_size_enabled */
+	if (of_property_read_u32(devnode, "touch_size_enabled",
+		&pdata->size_enabled)) {
+		dev_err(dev, "Failed to get property: touch_size_enabled\n");
+		goto err_max1187x_get_platdata_dt;
+	}
+
+	/* Parse touch_orientation_enabled */
+	if (of_property_read_u32(devnode, "touch_orientation_enabled",
+		&pdata->orientation_enabled)) {
+		dev_err(dev, "Failed to get property: touch_orientation_enabled\n");
+		goto err_max1187x_get_platdata_dt;
+	}
+
 	/* Parse button_code3 */
 	if (of_property_read_u32(devnode, "button_code3",
 		&pdata->button_code3)) {
@@ -2087,15 +2112,20 @@ static int probe(struct i2c_client *client, const struct i2c_device_id *id)
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y,
 			ts->pdata->panel_margin_yl,
 			ts->pdata->panel_margin_yl + ts->pdata->lcd_y, 0, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE,
-			0, MXM_PRESSURE_SQRT_MAX, 0, 0);
+	if (ts->pdata->pressure_enabled)
+		input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE,
+				0, MXM_PRESSURE_SQRT_MAX, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_TOOL_TYPE,
 			MT_TOOL_FINGER, MT_TOOL_FINGER, 0, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR,
-			0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MINOR,
-			0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_ORIENTATION, -90, 90, 0, 0);
+	if (ts->pdata->size_enabled) {
+		input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR,
+				0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
+		input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MINOR,
+				0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
+	}
+	if (ts->pdata->orientation_enabled)
+		input_set_abs_params(ts->input_dev, ABS_MT_ORIENTATION,
+				-90, 90, 0, 0);
 	if (ts->pdata->button_code0 != KEY_RESERVED)
 		set_bit(pdata->button_code0, ts->input_dev->keybit);
 	if (ts->pdata->button_code1 != KEY_RESERVED)
@@ -2137,14 +2167,20 @@ static int probe(struct i2c_client *client, const struct i2c_device_id *id)
 	input_set_abs_params(ts->input_pen, ABS_MT_POSITION_Y,
 			ts->pdata->panel_margin_yl,
 			ts->pdata->panel_margin_yl + ts->pdata->lcd_y, 0, 0);
-	input_set_abs_params(ts->input_pen, ABS_MT_PRESSURE, 0, 0xFF, 0, 0);
+	if (ts->pdata->pressure_enabled)
+		input_set_abs_params(ts->input_pen, ABS_MT_PRESSURE,
+				0, 0xFF, 0, 0);
 	input_set_abs_params(ts->input_pen, ABS_MT_TOOL_TYPE,
 			0, MT_TOOL_MAX, 0, 0);
-	input_set_abs_params(ts->input_pen, ABS_MT_TOUCH_MAJOR,
-			0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
-	input_set_abs_params(ts->input_pen, ABS_MT_TOUCH_MINOR,
-			0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
-	input_set_abs_params(ts->input_pen, ABS_MT_ORIENTATION, -90, 90, 0, 0);
+	if (ts->pdata->size_enabled) {
+		input_set_abs_params(ts->input_pen, ABS_MT_TOUCH_MAJOR,
+				0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
+		input_set_abs_params(ts->input_pen, ABS_MT_TOUCH_MINOR,
+				0, ts->pdata->lcd_x + ts->pdata->lcd_y, 0, 0);
+	}
+	if (ts->pdata->orientation_enabled)
+		input_set_abs_params(ts->input_pen, ABS_MT_ORIENTATION,
+				-90, 90, 0, 0);
 	ret = input_register_device(ts->input_pen);
 	if (ret) {
 		dev_err(dev, "Failed to register touch pen input device");

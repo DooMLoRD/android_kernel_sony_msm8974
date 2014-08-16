@@ -631,6 +631,7 @@ struct dwc3_request {
 
 	u8			epnum;
 	struct dwc3_trb		*trb;
+	struct dwc3_trb		*ztrb;
 	dma_addr_t		trb_dma;
 
 	unsigned		direction:1;
@@ -649,6 +650,7 @@ struct dwc3_scratchpad_array {
 #define DWC3_CONTROLLER_ERROR_EVENT			0
 #define DWC3_CONTROLLER_RESET_EVENT			1
 #define DWC3_CONTROLLER_POST_RESET_EVENT		2
+#define DWC3_CONTROLLER_POST_INITIALIZATION_EVENT	3
 /**
  * struct dwc3 - representation of our controller
  * @ctrl_req: usb control request which is used for ep0
@@ -780,6 +782,7 @@ struct dwc3 {
 	bool			softconnect;
 	void (*notify_event) (struct dwc3 *, unsigned);
 	int			tx_fifo_size;
+	bool			tx_fifo_reduced;
 };
 
 /* -------------------------------------------------------------------------- */

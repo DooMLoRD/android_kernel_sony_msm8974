@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -68,6 +68,10 @@ MODULE_PARM_DESC(adc_meas_interval, "ADC ID polling period");
 static int override_phy_init;
 module_param(override_phy_init, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(override_phy_init, "Override HSPHY Init Seq");
+
+static int ss_phy_override_deemphasis;
+module_param(ss_phy_override_deemphasis, int, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC(ss_phy_override_deemphasis, "Override SSPHY demphasis value");
 
 /* Enable Proprietary charger detection */
 static bool prop_chg_detect;
@@ -198,6 +202,7 @@ struct dwc3_msm {
 	atomic_t		in_lpm;
 	int			hs_phy_irq;
 	int			hsphy_init_seq;
+	int			deemphasis_val;
 	bool			lpm_irq_seen;
 	struct delayed_work	resume_work;
 	struct work_struct	restart_usb_work;
@@ -1039,10 +1044,13 @@ void dwc3_tx_fifo_resize_request(struct usb_ep *ep, bool qdss_enabled)
 	struct dwc3 *dwc = dep->dwc;
 	struct dwc3_msm *mdwc = dev_get_drvdata(dwc->dev->parent);
 
-	if (qdss_enabled)
+	if (qdss_enabled) {
+		dwc->tx_fifo_reduced = true;
 		dwc->tx_fifo_size = mdwc->qdss_tx_fifo_size;
-	else
+	} else {
+		dwc->tx_fifo_reduced = false;
 		dwc->tx_fifo_size = mdwc->tx_fifo_size;
+	}
 }
 EXPORT_SYMBOL(dwc3_tx_fifo_resize_request);
 
@@ -1418,7 +1426,12 @@ static void dwc3_msm_ss_phy_reg_init(struct dwc3_msm *mdwc)
 	 */
 	data = dwc3_msm_ssusb_read_phycreg(mdwc->base, 0x1002);
 	data &= ~0x3F80;
-	data |= (0x16 << 7);
+	if (ss_phy_override_deemphasis)
+		mdwc->deemphasis_val = ss_phy_override_deemphasis;
+	if (mdwc->deemphasis_val)
+		data |= (mdwc->deemphasis_val << 7);
+	else
+		data |= (0x16 << 7);
 	data &= ~0x7F;
 	data |= (0x7F | (1 << 14));
 	dwc3_msm_ssusb_write_phycreg(mdwc->base, 0x1002, data);
@@ -1494,10 +1507,14 @@ static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned event)
 {
 	struct dwc3_msm *mdwc = dev_get_drvdata(dwc->dev->parent);
 
+	if (dwc->revision < DWC3_REVISION_230A)
+		return;
+
 	switch (event) {
 	case DWC3_CONTROLLER_ERROR_EVENT:
 		dev_info(mdwc->dev, "DWC3_CONTROLLER_ERROR_EVENT received\n");
 		dwc3_msm_dump_phy_info(mdwc);
+		dwc3_msm_write_reg(mdwc->base, DWC3_DEVTEN, 0);
 		/*
 		 * schedule work for doing block reset for recovery from erratic
 		 * error event.
@@ -1515,6 +1532,10 @@ static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned event)
 					DWC3_CONTROLLER_POST_RESET_EVENT);
 		dwc->tx_fifo_size = mdwc->tx_fifo_size;
 		break;
+	case DWC3_CONTROLLER_POST_INITIALIZATION_EVENT:
+		/* clear LANE0_PWR_PRESENT bit after initialization is done */
+		dwc3_msm_write_readback(mdwc->base, SS_PHY_CTRL_REG, (1 << 24),
+									0x0);
 	default:
 		dev_dbg(mdwc->dev, "unknown dwc3 event\n");
 		break;
@@ -1549,10 +1570,23 @@ static void dwc3_block_reset_usb_work(struct work_struct *w)
 {
 	struct dwc3_msm *mdwc = container_of(w, struct dwc3_msm,
 						usb_block_reset_work);
+	u32 reg;
 
 	dev_dbg(mdwc->dev, "%s\n", __func__);
 
 	dwc3_msm_block_reset(&mdwc->ext_xceiv, true);
+
+	reg = (DWC3_DEVTEN_EVNTOVERFLOWEN |
+			DWC3_DEVTEN_CMDCMPLTEN |
+			DWC3_DEVTEN_ERRTICERREN |
+			DWC3_DEVTEN_WKUPEVTEN |
+			DWC3_DEVTEN_ULSTCNGEN |
+			DWC3_DEVTEN_CONNECTDONEEN |
+			DWC3_DEVTEN_USBRSTEN |
+			DWC3_DEVTEN_DISCONNEVTEN);
+	dwc3_msm_write_reg(mdwc->base, DWC3_DEVTEN, reg);
+
+
 }
 
 static void dwc3_chg_enable_secondary_det(struct dwc3_msm *mdwc)
@@ -1772,6 +1806,11 @@ static void dwc3_start_chg_det(struct dwc3_charger *charger, bool start)
 		charger->chg_type = DWC3_INVALID_CHARGER;
 		return;
 	}
+
+	/* Skip if charger type was already detected externally */
+	if (mdwc->chg_state == USB_CHG_STATE_DETECTED &&
+		charger->chg_type != DWC3_INVALID_CHARGER)
+		return;
 
 	mdwc->chg_state = USB_CHG_STATE_UNDEFINED;
 	charger->chg_type = DWC3_INVALID_CHARGER;
@@ -2276,8 +2315,12 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 			mdwc->ext_xceiv.bsv = val->intval;
 			dev_info(mdwc->dev, "%s: set bsv=%d\n", __func__,
 							mdwc->ext_xceiv.bsv);
+			/*
+			 * set debouncing delay to 120msec. Otherwise battery
+			 * charging CDP complaince test fails if delay > 120ms.
+			 */
 			queue_delayed_work(system_nrt_wq,
-							&mdwc->resume_work, 20);
+							&mdwc->resume_work, 12);
 
 			if (!init)
 				init = true;
@@ -3046,6 +3089,10 @@ static int __devinit dwc3_msm_probe(struct platform_device *pdev)
 		dev_dbg(&pdev->dev, "unable to read hsphy init seq\n");
 	else if (!mdwc->hsphy_init_seq)
 		dev_warn(&pdev->dev, "incorrect hsphyinitseq.Using PORvalue\n");
+
+	if (of_property_read_u32(node, "qcom,dwc-ssphy-deemphasis-value",
+						&mdwc->deemphasis_val))
+		dev_dbg(&pdev->dev, "unable to read ssphy deemphasis value\n");
 
 	pm_runtime_set_active(mdwc->dev);
 	pm_runtime_enable(mdwc->dev);

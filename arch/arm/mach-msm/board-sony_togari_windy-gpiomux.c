@@ -2049,33 +2049,21 @@ static struct msm_gpiomux_config rhine_all_configs[] __initdata = {
 		.gpio = 96,
 		.settings = { [GPIOMUX_SUSPENDED] = &unused_gpio, },
 	},
-	{ /* UIM1_DATA */
+	{ /* UIM1_DATA(Not used) */
 		.gpio = 97,
-		.settings = {
-			[GPIOMUX_ACTIVE]    = &gpio_2ma_follow_qct,
-			[GPIOMUX_SUSPENDED] = &gpio_2ma_follow_qct,
-		},
+		.settings = { [GPIOMUX_SUSPENDED] = &gpio_2ma_pull_down_in, },
 	},
-	{ /* UIM1_CLK */
+	{ /* UIM1_CLK(Not used) */
 		.gpio = 98,
-		.settings = {
-			[GPIOMUX_ACTIVE]    = &gpio_2ma_follow_qct,
-			[GPIOMUX_SUSPENDED] = &gpio_2ma_follow_qct,
-		},
+		.settings = { [GPIOMUX_SUSPENDED] = &gpio_2ma_pull_down_in, },
 	},
-	{ /* UIM1_RST */
+	{ /* UIM1_RST(Not used) */
 		.gpio = 99,
-		.settings = {
-			[GPIOMUX_ACTIVE]    = &gpio_2ma_follow_qct,
-			[GPIOMUX_SUSPENDED] = &gpio_2ma_follow_qct,
-		},
+		.settings = { [GPIOMUX_SUSPENDED] = &gpio_2ma_pull_down_in, },
 	},
-	{ /* UIM1_DETECT */
+	{ /* UIM1_DETECT(Not used) */
 		.gpio = 100,
-		.settings = {
-			[GPIOMUX_ACTIVE]    = &gpio_2ma_no_pull_in,
-			[GPIOMUX_SUSPENDED] = &gpio_2ma_no_pull_in,
-		},
+		.settings = { [GPIOMUX_SUSPENDED] = &gpio_2ma_pull_down_in, },
 	},
 	{ /* BATT_REM_ALARM */
 		.gpio = 101,
@@ -2449,6 +2437,10 @@ void __init msm_8974_init_gpiomux(void)
 		pr_err("%s failed %d\n", __func__, rc);
 		return;
 	}
+
+#if defined(CONFIG_SONY_CAM_V4L2)
+	msm_tlmm_misc_reg_write(TLMM_SPARE_REG, 0x5);
+#endif
 
 	of_gpio_node = of_find_compatible_node(NULL, NULL, "qcom,msm-gpio");
 	if (!of_gpio_node) {

@@ -59,12 +59,6 @@ static int msm8974_auxpcm_rate = 8000;
 #define LO_2_SPK_AMP	0x4
 #define LO_4_SPK_AMP	0x8
 
-#define LPAIF_OFFSET 0xFE000000
-#define LPAIF_PRI_MODE_MUXSEL (LPAIF_OFFSET + 0x2B000)
-#define LPAIF_SEC_MODE_MUXSEL (LPAIF_OFFSET + 0x2C000)
-#define LPAIF_TER_MODE_MUXSEL (LPAIF_OFFSET + 0x2D000)
-#define LPAIF_QUAD_MODE_MUXSEL (LPAIF_OFFSET + 0x2E000)
-
 #define I2S_PCM_SEL 1
 #define I2S_PCM_SEL_OFFSET 1
 
@@ -134,6 +128,8 @@ static struct wcd9xxx_mbhc_config mbhc_cfg = {
 	.micbias_enable_flags = 1 << MBHC_MICBIAS_ENABLE_THRESHOLD_HEADSET,
 	.insert_detect = true,
 	.swap_gnd_mic = NULL,
+	.do_recalibration = true,
+	.use_vddio_meas = true,
 };
 
 struct msm_auxpcm_gpio {
@@ -144,6 +140,7 @@ struct msm_auxpcm_gpio {
 struct msm_auxpcm_ctrl {
 	struct msm_auxpcm_gpio *pin_data;
 	u32 cnt;
+	void __iomem *mux;
 };
 
 struct msm8974_asoc_mach_data {
@@ -170,9 +167,6 @@ static char *msm_sec_auxpcm_gpio_name[][2] = {
 	{"SEC_AUXPCM_DIN",       "qcom,sec-auxpcm-gpio-din"},
 	{"SEC_AUXPCM_DOUT",      "qcom,sec-auxpcm-gpio-dout"},
 };
-
-void *lpaif_pri_muxsel_virt_addr;
-void *lpaif_sec_muxsel_virt_addr;
 
 struct msm8974_liquid_dock_dev {
 	int dock_plug_gpio;
@@ -1210,12 +1204,14 @@ static int msm_prim_auxpcm_startup(struct snd_pcm_substream *substream)
 		goto err;
 	}
 	if (atomic_inc_return(&prim_auxpcm_rsc_ref) == 1) {
-		if (lpaif_pri_muxsel_virt_addr != NULL)
+		if (auxpcm_ctrl->mux != NULL) {
 			iowrite32(I2S_PCM_SEL << I2S_PCM_SEL_OFFSET,
-				lpaif_pri_muxsel_virt_addr);
-		else
-			pr_err("%s lpaif_pri_muxsel_virt_addr is NULL\n",
-				 __func__);
+				  auxpcm_ctrl->mux);
+		} else {
+			pr_err("%s: Pri AUXPCM MUX addr is NULL\n", __func__);
+			ret = -EINVAL;
+			goto err;
+		}
 		ret = msm_aux_pcm_get_gpios(auxpcm_ctrl);
 	}
 	if (ret < 0) {
@@ -1265,12 +1261,14 @@ static int msm_sec_auxpcm_startup(struct snd_pcm_substream *substream)
 		goto err;
 	}
 	if (atomic_inc_return(&sec_auxpcm_rsc_ref) == 1) {
-		if (lpaif_sec_muxsel_virt_addr != NULL)
+		if (auxpcm_ctrl->mux != NULL) {
 			iowrite32(I2S_PCM_SEL << I2S_PCM_SEL_OFFSET,
-				lpaif_sec_muxsel_virt_addr);
-		else
-			pr_err("%s lpaif_sec_muxsel_virt_addr is NULL\n",
-				 __func__);
+				  auxpcm_ctrl->mux);
+		} else {
+			pr_err("%s Sec AUXPCM MUX addr is NULL\n", __func__);
+			ret = -EINVAL;
+			goto err;
+		}
 		ret = msm_aux_pcm_get_gpios(auxpcm_ctrl);
 	}
 	if (ret < 0) {
@@ -1391,6 +1389,22 @@ static int msm_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 
 	pr_debug("%s()\n", __func__);
 	rate->min = rate->max = 48000;
+
+	return 0;
+}
+
+static int msm_be_fm_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+				struct snd_pcm_hw_params *params)
+{
+	struct snd_interval *rate = hw_param_interval(params,
+					SNDRV_PCM_HW_PARAM_RATE);
+
+	struct snd_interval *channels =
+	    hw_param_interval(params, SNDRV_PCM_HW_PARAM_CHANNELS);
+
+	pr_debug("%s()\n", __func__);
+	rate->min = rate->max = 48000;
+	channels->min = channels->max = 2;
 
 	return 0;
 }
@@ -2022,7 +2036,7 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.name = "MSM8974 Compr",
 		.stream_name = "COMPR",
 		.cpu_dai_name	= "MultiMedia4",
-		.platform_name  = "msm-compr-dsp",
+		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -2142,7 +2156,7 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.name = "MSM8974 Compr2",
 		.stream_name = "COMPR2",
 		.cpu_dai_name	= "MultiMedia6",
-		.platform_name  = "msm-compr-dsp",
+		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -2157,7 +2171,7 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.name = "MSM8974 Compr3",
 		.stream_name = "COMPR3",
 		.cpu_dai_name	= "MultiMedia7",
-		.platform_name  = "msm-compr-dsp",
+		.platform_name  = "msm-compress-dsp",
 		.dynamic = 1,
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			 SND_SOC_DPCM_TRIGGER_POST},
@@ -2213,6 +2227,53 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
+	},
+	{
+		.name = "Voice2",
+		.stream_name = "Voice2",
+		.cpu_dai_name   = "Voice2",
+		.platform_name  = "msm-pcm-voice",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		/* this dainlink has playback support */
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.be_id = MSM_FRONTEND_DAI_VOICE2,
+	},
+	{
+		.name = "INT_HFP_BT Hostless",
+		.stream_name = "INT_HFP_BT Hostless",
+		.cpu_dai_name   = "INT_HFP_BT_HOSTLESS",
+		.platform_name  = "msm-pcm-hostless",
+		.dynamic = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		/* this dai link has playback support */
+		.ignore_pmdown_time = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+	},
+	{
+		.name = "MSM8974 HFP TX",
+		.stream_name = "MultiMedia6",
+		.cpu_dai_name = "MultiMedia6",
+		.platform_name  = "msm-pcm-loopback",
+		.dynamic = 1,
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.codec_name = "snd-soc-dummy",
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			    SND_SOC_DPCM_TRIGGER_POST},
+		.ignore_suspend = 1,
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		/* this dainlink has playback support */
+		.ignore_pmdown_time = 1,
+		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA6,
 	},
 	{
 		.name = LPASS_BE_SLIMBUS_4_TX,
@@ -2287,7 +2348,7 @@ static struct snd_soc_dai_link msm8974_common_dai_links[] = {
 		.codec_dai_name = "msm-stub-rx",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_INT_FM_RX,
-		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_be_fm_hw_params_fixup,
 		/* this dainlink has playback support */
 		.ignore_pmdown_time = 1,
 		.ignore_suspend = 1,
@@ -2676,6 +2737,8 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 	int ret;
 	const char *auxpcm_pri_gpio_set = NULL;
 	const char *prop_name_ult_lo_gpio = "qcom,ext-ult-lo-amp-gpio";
+	struct resource	*pri_muxsel;
+	struct resource	*sec_muxsel;
 
 	if (!pdev->dev.of_node) {
 		dev_err(&pdev->dev, "No platform supplied from device tree\n");
@@ -2803,7 +2866,6 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 		}
 	}
 
-
 	pdata->us_euro_gpio = of_get_named_gpio(pdev->dev.of_node,
 				"qcom,us-euro-gpios", 0);
 	if (pdata->us_euro_gpio < 0) {
@@ -2830,28 +2892,49 @@ static __devinit int msm8974_asoc_machine_probe(struct platform_device *pdev)
 		goto err1;
 	}
 	if (!strcmp(auxpcm_pri_gpio_set, "prim-gpio-prim")) {
-		lpaif_pri_muxsel_virt_addr = ioremap(LPAIF_PRI_MODE_MUXSEL, 4);
+		pri_muxsel = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+						"lpaif_pri_mode_muxsel");
 	} else if (!strcmp(auxpcm_pri_gpio_set, "prim-gpio-tert")) {
-		lpaif_pri_muxsel_virt_addr = ioremap(LPAIF_TER_MODE_MUXSEL, 4);
+		pri_muxsel = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+						"lpaif_tert_mode_muxsel");
 	} else {
 		dev_err(&pdev->dev, "Invalid value %s for AUXPCM GPIO set\n",
 			auxpcm_pri_gpio_set);
 		ret = -EINVAL;
 		goto err1;
 	}
-	if (lpaif_pri_muxsel_virt_addr == NULL) {
-		pr_err("%s Pri muxsel virt addr is null\n", __func__);
-		ret = -EINVAL;
-		goto err1;
+	if (!pri_muxsel) {
+		dev_err(&pdev->dev, "MUX addr invalid for primary AUXPCM\n");
+			ret = -ENODEV;
+			goto err1;
+	} else {
+		pdata->pri_auxpcm_ctrl->mux = ioremap(pri_muxsel->start,
+						    resource_size(pri_muxsel));
+		if (pdata->pri_auxpcm_ctrl->mux == NULL) {
+			pr_err("%s Pri muxsel virt addr is null\n", __func__);
+			ret = -EINVAL;
+			goto err1;
+		}
 	}
-	lpaif_sec_muxsel_virt_addr = ioremap(LPAIF_SEC_MODE_MUXSEL, 4);
-	if (lpaif_sec_muxsel_virt_addr == NULL) {
+
+	sec_muxsel = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+						"lpaif_sec_mode_muxsel");
+	if (!sec_muxsel) {
+		dev_err(&pdev->dev, "MUX addr invalid for secondary AUXPCM\n");
+		ret = -ENODEV;
+		goto err2;
+	}
+	pdata->sec_auxpcm_ctrl->mux = ioremap(sec_muxsel->start,
+					     resource_size(sec_muxsel));
+	if (pdata->sec_auxpcm_ctrl->mux == NULL) {
 		pr_err("%s Sec muxsel virt addr is null\n", __func__);
 		ret = -EINVAL;
-		goto err1;
+		goto err2;
 	}
 	return 0;
 
+err2:
+	iounmap(pdata->pri_auxpcm_ctrl->mux);
 err1:
 	if (ext_ult_lo_amp_gpio >= 0)
 		gpio_free(ext_ult_lo_amp_gpio);
@@ -2905,8 +2988,8 @@ static int __devexit msm8974_asoc_machine_remove(struct platform_device *pdev)
 		msm8974_liquid_dock_dev = NULL;
 	}
 
-	iounmap(lpaif_pri_muxsel_virt_addr);
-	iounmap(lpaif_sec_muxsel_virt_addr);
+	iounmap(pdata->pri_auxpcm_ctrl->mux);
+	iounmap(pdata->sec_auxpcm_ctrl->mux);
 	snd_soc_unregister_card(card);
 
 	return 0;

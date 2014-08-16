@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,6 +36,9 @@ void diag_clean_reg_fn(struct work_struct *work)
 	reg_dirty |= smd_info->peripheral_mask;
 	diag_clear_reg(smd_info->peripheral);
 	reg_dirty ^= smd_info->peripheral_mask;
+
+	/* Reset the feature mask flag */
+	driver->rcvd_feature_mask[smd_info->peripheral] = 0;
 
 	smd_info->notify_context = 0;
 }
@@ -158,14 +161,21 @@ int diag_process_smd_cntl_read_data(struct diag_smd_info *smd_info, void *buf,
 			msg = buf+HDR_SIZ;
 			range = buf+HDR_SIZ+
 					sizeof(struct diag_ctrl_msg);
+			if (msg->count_entries == 0) {
+				pr_debug("diag: In %s, received reg tbl with no entries\n",
+								__func__);
+				buf = buf + HDR_SIZ + data_len;
+				continue;
+			}
 			pkt_params->count = msg->count_entries;
 			pkt_params->params = kzalloc(pkt_params->count *
 				sizeof(struct bindpkt_params), GFP_KERNEL);
-			if (ZERO_OR_NULL_PTR(pkt_params->params)) {
-				pr_alert("diag: In %s, Memory alloc fail\n",
-					__func__);
-				kfree(pkt_params);
-				return flag;
+			if (!pkt_params->params) {
+				pr_alert("diag: In %s, Memory alloc fail for cmd_code: %d, subsys: %d\n",
+						__func__, msg->cmd_code,
+						msg->subsysid);
+				buf = buf + HDR_SIZ + data_len;
+				continue;
 			}
 			temp = pkt_params->params;
 			for (j = 0; j < pkt_params->count; j++) {
@@ -195,6 +205,8 @@ int diag_process_smd_cntl_read_data(struct diag_smd_info *smd_info, void *buf,
 			int feature_mask_len = *(int *)(buf+8);
 			if (feature_mask_len > 0) {
 				int periph = smd_info->peripheral;
+				driver->rcvd_feature_mask[smd_info->peripheral]
+									= 1;
 				feature_mask = *(uint8_t *)(buf+12);
 				if (periph == MODEM_DATA)
 					driver->log_on_demand_support =
@@ -262,31 +274,39 @@ void diag_real_time_work_fn(struct work_struct *work)
 {
 	int temp_real_time = MODE_REALTIME, i;
 
-	/* If any of the process is voting for Real time, then Diag
-	   should be in real time mode irrespective of other clauses. If
-	   USB is connected, check what the memory device process is
-	   voting for. If it is voting for Non real time, the final mode
-	   should be Non real time, real time otherwise. If USB is
-	   disconncted and no process is voting for real time, the
-	   resultant mode should be Non Real Time.
-	*/
-	if ((driver->proc_rt_vote_mask & driver->proc_active_mask) &&
-					(driver->proc_active_mask != 0))
-			temp_real_time = MODE_REALTIME;
-	else if (driver->usb_connected)
+	if (driver->proc_active_mask == 0) {
+		/* There are no DCI or Memory Device processes. Diag should
+		 * be in Real Time mode irrespective of USB connection
+		 */
+		temp_real_time = MODE_REALTIME;
+	} else if (driver->proc_rt_vote_mask & driver->proc_active_mask) {
+		/* Atleast one process is alive and is voting for Real Time
+		 * data - Diag should be in real time mode irrespective of USB
+		 * connection.
+		 */
+		temp_real_time = MODE_REALTIME;
+	} else if (driver->usb_connected) {
+		/* If USB is connected, check individual process. If Memory
+		 * Device Mode is active, set the mode requested by Memory
+		 * Device process. Set to realtime mode otherwise.
+		 */
 		if ((driver->proc_rt_vote_mask & DIAG_PROC_MEMORY_DEVICE) == 0)
 			temp_real_time = MODE_NONREALTIME;
 		else
 			temp_real_time = MODE_REALTIME;
-	else
+	} else {
+		/* We come here if USB is not connected and the active
+		 * processes are voting for Non realtime mode.
+		 */
 		temp_real_time = MODE_NONREALTIME;
+	}
 
 	if (temp_real_time != driver->real_time_mode) {
 		for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++)
 			diag_send_diag_mode_update_by_smd(&driver->smd_cntl[i],
 							temp_real_time);
 	} else {
-		pr_info("diag: did not update real time mode, already in the req mode %d",
+		pr_debug("diag: did not update real time mode, already in the req mode %d",
 					temp_real_time);
 	}
 	if (driver->real_time_update_busy > 0)
@@ -297,9 +317,15 @@ void diag_real_time_work_fn(struct work_struct *work)
 {
 	int temp_real_time = MODE_REALTIME, i;
 
-	if (!(driver->proc_rt_vote_mask & driver->proc_active_mask) &&
-					(driver->proc_active_mask != 0))
+	if (driver->proc_active_mask == 0) {
+		/* There are no DCI or Memory Device processes. Diag should
+		 * be in Real Time mode.
+		 */
+		temp_real_time = MODE_REALTIME;
+	} else if (!(driver->proc_rt_vote_mask & driver->proc_active_mask)) {
+		/* No active process is voting for real time mode */
 		temp_real_time = MODE_NONREALTIME;
+	}
 
 	if (temp_real_time != driver->real_time_mode) {
 		for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++)
@@ -321,10 +347,24 @@ void diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
 	char buf[sizeof(struct diag_ctrl_msg_diagmode)];
 	int msg_size = sizeof(struct diag_ctrl_msg_diagmode);
 	int wr_size = -ENOMEM, retry_count = 0, timer;
+	struct diag_smd_info *data = NULL;
 
-	/* For now only allow the modem to receive the message */
-	if (!smd_info || smd_info->type != SMD_CNTL_TYPE ||
-		(smd_info->peripheral != MODEM_DATA))
+	if (!smd_info || smd_info->type != SMD_CNTL_TYPE) {
+		pr_err("diag: In %s, invalid channel info, smd_info: %p type: %d\n",
+					__func__, smd_info,
+					((smd_info) ? smd_info->type : -1));
+		return;
+	}
+
+	if (smd_info->peripheral < MODEM_DATA ||
+					smd_info->peripheral > WCNSS_DATA) {
+		pr_err("diag: In %s, invalid peripheral %d\n", __func__,
+							smd_info->peripheral);
+		return;
+	}
+
+	data = &driver->smd_data[smd_info->peripheral];
+	if (!data)
 		return;
 
 	mutex_lock(&driver->diag_cntl_mutex);
@@ -349,7 +389,9 @@ void diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
 
 	if (smd_info->ch) {
 		while (retry_count < 3) {
+			mutex_lock(&smd_info->smd_ch_mutex);
 			wr_size = smd_write(smd_info->ch, buf, msg_size);
+			mutex_unlock(&smd_info->smd_ch_mutex);
 			if (wr_size == -ENOMEM) {
 				/*
 				 * The smd channel is full. Delay while
@@ -362,11 +404,9 @@ void diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
 				for (timer = 0; timer < 5; timer++)
 					udelay(2000);
 			} else {
-				struct diag_smd_info *data =
+				data =
 				&driver->smd_data[smd_info->peripheral];
 				driver->real_time_mode = real_time;
-				process_lock_enabling(&data->nrt_lock,
-								real_time);
 				break;
 			}
 		}
@@ -378,6 +418,7 @@ void diag_send_diag_mode_update_by_smd(struct diag_smd_info *smd_info,
 		pr_err("diag: ch invalid, feature update on proc %d\n",
 				smd_info->peripheral);
 	}
+	process_lock_enabling(&data->nrt_lock, real_time);
 
 	mutex_unlock(&driver->diag_cntl_mutex);
 }
@@ -403,7 +444,9 @@ int diag_send_stm_state(struct diag_smd_info *smd_info,
 		stm_msg.version = 1;
 		stm_msg.control_data = stm_control_data;
 		while (retry_count < 3) {
+			mutex_lock(&smd_info->smd_ch_mutex);
 			wr_size = smd_write(smd_info->ch, &stm_msg, msg_size);
+			mutex_unlock(&smd_info->smd_ch_mutex);
 			if (wr_size == -ENOMEM) {
 				/*
 				 * The smd channel is full. Delay while

@@ -139,6 +139,7 @@ static struct qpnp_vadc_scale_fn vadc_scale_fn[] = {
 	[SCALE_QRD_BATT_THERM] = {qpnp_adc_scale_qrd_batt_therm},
 	[SCALE_QRD_SKUAA_BATT_THERM] = {qpnp_adc_scale_qrd_skuaa_batt_therm},
 	[SCALE_EMMC_THERM] = {qpnp_adc_scale_emmc_therm},
+	[SCALE_QRD_SKUG_BATT_THERM] = {qpnp_adc_scale_qrd_skug_batt_therm},
 };
 
 static int32_t qpnp_vadc_read_reg(struct qpnp_vadc_chip *vadc, int16_t reg,
@@ -822,7 +823,14 @@ static int32_t qpnp_vadc_calib_device(struct qpnp_vadc_chip *vadc)
 	}
 
 	pr_debug("absolute reference raw: 625mV:0x%x 1.25V:0x%x\n",
-				calib_read_1, calib_read_2);
+				calib_read_2, calib_read_1);
+
+	if (calib_read_1 == calib_read_2) {
+		pr_err("absolute reference raw: 625mV:0x%x 1.25V:0x%x\n",
+				calib_read_2, calib_read_1);
+		rc = -EINVAL;
+		goto calib_fail;
+	}
 
 	vadc->adc->amux_prop->chan_prop->adc_graph[CALIB_ABSOLUTE].dy =
 					(calib_read_1 - calib_read_2);
@@ -902,6 +910,14 @@ static int32_t qpnp_vadc_calib_device(struct qpnp_vadc_chip *vadc)
 
 	pr_debug("ratiometric reference raw: VDD:0x%x GND:0x%x\n",
 				calib_read_1, calib_read_2);
+
+	if (calib_read_1 == calib_read_2) {
+		pr_err("ratiometric reference raw: VDD:0x%x GND:0x%x\n",
+				calib_read_1, calib_read_2);
+		rc = -EINVAL;
+		goto calib_fail;
+	}
+
 	vadc->adc->amux_prop->chan_prop->adc_graph[CALIB_RATIOMETRIC].dy =
 					(calib_read_1 - calib_read_2);
 	vadc->adc->amux_prop->chan_prop->adc_graph[CALIB_RATIOMETRIC].dx =
@@ -1388,7 +1404,6 @@ static int __devinit qpnp_vadc_probe(struct spmi_device *spmi)
 	qpnp_adc_therm_table_sel(of_property_read_bool(node,
 				"qcom,use-old-batt-therm-table"));
 
-
 	rc = qpnp_vadc_write_reg(vadc, QPNP_VADC_INT_LATCHED_CLR,
 			(QPNP_VADC_LOW_THR_INT_LATCHED_CLR |
 			 QPNP_VADC_HIGH_THR_INT_LATCHED_CLR |
@@ -1398,6 +1413,7 @@ static int __devinit qpnp_vadc_probe(struct spmi_device *spmi)
 	if (rc)
 		dev_err(&spmi->dev,
 			"faild to clear LATCHED interrupt. rc=%d\n", rc);
+
 	rc = qpnp_vadc_init_hwmon(vadc, spmi);
 	if (rc) {
 		dev_err(&spmi->dev, "failed to initialize qpnp hwmon adc\n");

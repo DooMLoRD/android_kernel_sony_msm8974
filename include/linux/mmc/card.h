@@ -1,6 +1,8 @@
 /*
  *  linux/include/linux/mmc/card.h
  *
+ * Copyright (c) 2014 Sony Mobile Communications AB.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -219,6 +221,8 @@ enum mmc_blk_status {
 	MMC_BLK_NEW_REQUEST,
 	MMC_BLK_URGENT,
 	MMC_BLK_URGENT_DONE,
+	MMC_BLK_NO_REQ_TO_STOP,
+	MMC_BLK_RETRY_SINGLE,
 };
 
 struct mmc_wr_pack_stats {
@@ -352,6 +356,9 @@ struct mmc_card {
 #define MMC_QUIRK_INAND_DATA_TIMEOUT  (1<<8)    /* For incorrect data timeout */
 /* To avoid eMMC device getting broken permanently due to HPI feature */
 #define MMC_QUIRK_BROKEN_HPI (1 << 11)
+ /* Skip data-timeout advertised by card */
+#define MMC_QUIRK_BROKEN_DATA_TIMEOUT	(1<<12)
+
 
 	unsigned int		erase_size;	/* erase size in sectors */
  	unsigned int		erase_shift;	/* if erase unit is power 2 */
@@ -392,7 +399,7 @@ struct mmc_card {
 	unsigned int		idle_timeout;
 	struct notifier_block        reboot_notify;
 	bool issue_long_pon;
-	u8 cached_ext_csd;
+	u8 *cached_ext_csd;
 };
 
 /*

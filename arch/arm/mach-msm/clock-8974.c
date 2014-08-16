@@ -542,7 +542,8 @@ static void __iomem *virt_bases[N_BASES];
 #define gpll1_hsic_source_val 4
 #define cxo_lpass_source_val 0
 #define gpll0_lpass_source_val 5
-#define edppll_270_mm_source_val 4
+#define edp_mainlink_mm_source_val 4
+#define edp_pixel_mm_source_val 5
 #define edppll_350_mm_source_val 4
 #define dsipll_750_mm_source_val 1
 #define dsipll0_byte_mm_source_val 1
@@ -579,10 +580,10 @@ static void __iomem *virt_bases[N_BASES];
 			| BVAL(10, 8, s##_mm_source_val), \
 	}
 
-#define F_HDMI(f, s, div, m, n) \
+#define F_EDP(f, s, div, m, n) \
 	{ \
 		.freq_hz = (f), \
-		.src_clk = &s##_clk_src, \
+		.src_clk = &s##_clk_src.c, \
 		.m_val = (m), \
 		.n_val = ~((n)-(m)) * !!(n), \
 		.d_val = ~(n),\
@@ -1546,6 +1547,24 @@ static struct rcg_clk pdm2_clk_src = {
 	},
 };
 
+/* This table is for MSM8974Pro AC SDCC1 */
+static struct clk_freq_tbl ftbl_gcc_sdcc1_apps_clk_ac[] = {
+	F(   144000,    cxo,  16,   3,  25),
+	F(   400000,    cxo,  12,   1,   4),
+	F( 20000000,  gpll0,  15,   1,   2),
+	F( 25000000,  gpll0,  12,   1,   2),
+	F( 50000000,  gpll0,  12,   0,   0),
+	F(100000000,  gpll0,   6,   0,   0),
+	F(192000000,  gpll4,   4,   0,   0),
+	F(384000000,  gpll4,   2,   0,   0),
+	F_END
+};
+
+/*
+ * This table is for:
+ * 1) SDCC[1-4] on MSM8974Pro AB, MSM8974 v2 and before
+ * 2) SDCC[2-4] on MSM8974Pro AC
+ */
 static struct clk_freq_tbl ftbl_gcc_sdcc1_4_apps_clk[] = {
 	F(   144000,    cxo,  16,   3,  25),
 	F(   400000,    cxo,  12,   1,   4),
@@ -1554,7 +1573,6 @@ static struct clk_freq_tbl ftbl_gcc_sdcc1_4_apps_clk[] = {
 	F( 50000000,  gpll0,  12,   0,   0),
 	F(100000000,  gpll0,   6,   0,   0),
 	F(200000000,  gpll0,   3,   0,   0),
-	F(384000000,  gpll4,   2,   0,   0),
 	F_END
 };
 
@@ -3168,40 +3186,42 @@ static struct rcg_clk edpaux_clk_src = {
 };
 
 static struct clk_freq_tbl ftbl_mdss_edplink_clk[] = {
-	F_MDSS(162000000, edppll_270,   2,   0,   0),
-	F_MDSS(270000000, edppll_270,  11,   0,   0),
+	F_EDP(162000000, edp_mainlink,  1,   0,   0),
+	F_EDP(270000000, edp_mainlink,  1,   0,   0),
 	F_END
 };
 
 static struct rcg_clk edplink_clk_src = {
 	.cmd_rcgr_reg = EDPLINK_CMD_RCGR,
-	.set_rate = set_rate_hid,
 	.freq_tbl = ftbl_mdss_edplink_clk,
 	.current_freq = &rcg_dummy_freq,
 	.base = &virt_bases[MMSS_BASE],
 	.c = {
 		.dbg_name = "edplink_clk_src",
-		.ops = &clk_ops_rcg,
+		.ops = &clk_ops_rcg_edp,
 		VDD_DIG_FMAX_MAP2(LOW, 135000000, NOMINAL, 270000000),
 		CLK_INIT(edplink_clk_src.c),
 	},
 };
 
-static struct clk_freq_tbl ftbl_mdss_edppixel_clk[] = {
-	F_MDSS(138500000, edppll_350,   2,   0,   0),
-	F_MDSS(350000000, edppll_350,  11,   0,   0),
+static struct clk_freq_tbl edp_pixel_freq_tbl[] = {
+	{
+		.src_clk = &edp_pixel_clk_src.c,
+		.div_src_val = BVAL(10, 8, edp_pixel_mm_source_val)
+				| BVAL(4, 0, 0),
+	},
 	F_END
 };
 
 static struct rcg_clk edppixel_clk_src = {
 	.cmd_rcgr_reg = EDPPIXEL_CMD_RCGR,
 	.set_rate = set_rate_mnd,
-	.freq_tbl = ftbl_mdss_edppixel_clk,
-	.current_freq = &rcg_dummy_freq,
+	.current_freq = edp_pixel_freq_tbl,
 	.base = &virt_bases[MMSS_BASE],
 	.c = {
+		.parent = &edp_pixel_clk_src.c,
 		.dbg_name = "edppixel_clk_src",
-		.ops = &clk_ops_rcg_mnd,
+		.ops = &clk_ops_edppixel,
 		VDD_DIG_FMAX_MAP2(LOW, 175000000, NOMINAL, 350000000),
 		CLK_INIT(edppixel_clk_src.c),
 	},
@@ -3240,60 +3260,19 @@ static struct rcg_clk esc1_clk_src = {
 	},
 };
 
-static int hdmi_pll_clk_enable(struct clk *c)
-{
-	return hdmi_pll_enable();
-}
-
-static void hdmi_pll_clk_disable(struct clk *c)
-{
-	hdmi_pll_disable();
-}
-
-static int hdmi_pll_clk_set_rate(struct clk *c, unsigned long rate)
-{
-	return hdmi_pll_set_rate(rate);
-}
-
-static struct clk_ops clk_ops_hdmi_pll = {
-	.enable = hdmi_pll_clk_enable,
-	.disable = hdmi_pll_clk_disable,
-	.set_rate = hdmi_pll_clk_set_rate,
-};
-
-static struct clk hdmipll_clk_src = {
-	.parent = &cxo_clk_src.c,
-	.dbg_name = "hdmipll_clk_src",
-	.ops = &clk_ops_hdmi_pll,
-	CLK_INIT(hdmipll_clk_src),
-};
-
 static struct clk_freq_tbl ftbl_mdss_extpclk_clk[] = {
-	/*
-	 * The zero rate is required since suspend/resume wipes out the HDMI PHY
-	 * registers. This entry allows the HDMI driver to switch the cached
-	 * rate to zero before suspend and back to the real rate after resume.
-	 */
-	F_HDMI(        0, hdmipll, 1, 0, 0),
-	F_HDMI( 25200000, hdmipll, 1, 0, 0),
-	F_HDMI( 27000000, hdmipll, 1, 0, 0),
-	F_HDMI( 27030000, hdmipll, 1, 0, 0),
-	F_HDMI( 65000000, hdmipll, 1, 0, 0),
-	F_HDMI( 74250000, hdmipll, 1, 0, 0),
-	F_HDMI(108000000, hdmipll, 1, 0, 0),
-	F_HDMI(148500000, hdmipll, 1, 0, 0),
-	F_HDMI(268500000, hdmipll, 1, 0, 0),
-	F_HDMI(297000000, hdmipll, 1, 0, 0),
+	F_MM(148500000, hdmipll, 1, 0, 0),
 	F_END
 };
 
 static struct rcg_clk extpclk_clk_src = {
 	.cmd_rcgr_reg = EXTPCLK_CMD_RCGR,
 	.freq_tbl = ftbl_mdss_extpclk_clk,
-	.current_freq = &rcg_dummy_freq,
+	.current_freq = ftbl_mdss_extpclk_clk,
 	.base = &virt_bases[MMSS_BASE],
 	.c = {
 		.dbg_name = "extpclk_clk_src",
+		.parent = &hdmipll_clk_src.c,
 		.ops = &clk_ops_rcg_hdmi,
 		VDD_DIG_FMAX_MAP2(LOW, 148500000, NOMINAL, 297000000),
 		CLK_INIT(extpclk_clk_src.c),
@@ -4463,6 +4442,7 @@ static DEFINE_CLK_MEASURE(krait0_m_clk);
 static DEFINE_CLK_MEASURE(krait1_m_clk);
 static DEFINE_CLK_MEASURE(krait2_m_clk);
 static DEFINE_CLK_MEASURE(krait3_m_clk);
+static DEFINE_CLK_MEASURE(wcnss_m_clk);
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -4563,6 +4543,7 @@ struct measure_mux_entry measure_mux[] = {
 	{&pnoc_clk.c,                           GCC_BASE, 0x0010},
 	{&snoc_clk.c,                           GCC_BASE, 0x0000},
 	{&bimc_clk.c,                           GCC_BASE, 0x0155},
+	{&wcnss_m_clk,                          GCC_BASE, 0x0198},
 	{&mmss_mmssnoc_axi_clk.c,		MMSS_BASE, 0x0004},
 	{&ocmemnoc_clk.c,			MMSS_BASE, 0x0007},
 	{&ocmemcx_ocmemnoc_clk.c,		MMSS_BASE, 0x0009},
@@ -4944,17 +4925,19 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("xo",       cxo_dwc3_clk.c,                 "msm_dwc3"),
 	CLK_LOOKUP("xo",  cxo_ehci_host_clk.c,            "msm_ehci_host"),
 	CLK_LOOKUP("xo",        cxo_lpm_clk.c,        "fc4281d0.qcom,mpm"),
-
+	CLK_LOOKUP("ref_clk",  cxo_d1_a_pin.c,                   "3-000e"),
+	CLK_LOOKUP("ref_clk_rf", cxo_a2_a_pin.c,                 "3-000e"),
 	CLK_LOOKUP("measure",	measure_clk.c,	"debug"),
 
+	CLK_LOOKUP("hfpll_src", cxo_a_clk_src.c,   "f9016000.qcom,clock-krait"),
+	CLK_LOOKUP("aux_clk",   gpll0_ao_clk_src.c,
+						"f9016000.qcom,clock-krait"),
 	CLK_LOOKUP("gpll0", gpll0_clk_src.c, ""),
-	CLK_LOOKUP("gpll0_ao", gpll0_ao_clk_src.c, ""),
 
 	CLK_LOOKUP("dma_bam_pclk", gcc_bam_dma_ahb_clk.c, "msm_sps"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f991f000.serial"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f9924000.i2c"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f9926000.i2c"),
-	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f9928000.i2c"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f991e000.serial"),
 	CLK_LOOKUP("iface_clk", gcc_blsp1_ahb_clk.c, "f9922000.serial"),
 	CLK_LOOKUP("core_clk", gcc_blsp1_qup1_i2c_apps_clk.c, "f9923000.i2c"),
@@ -4969,7 +4952,11 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("core_clk", gcc_blsp1_qup4_spi_apps_clk.c, ""),
 	CLK_LOOKUP("core_clk", gcc_blsp1_qup5_i2c_apps_clk.c, ""),
 	CLK_LOOKUP("core_clk", gcc_blsp1_qup5_spi_apps_clk.c, ""),
+
+	/* I2C Clocks nfc */
+	CLK_LOOKUP("iface_clk",          gcc_blsp1_ahb_clk.c, "f9928000.i2c"),
 	CLK_LOOKUP("core_clk", gcc_blsp1_qup6_i2c_apps_clk.c, "f9928000.i2c"),
+
 	CLK_LOOKUP("core_clk", gcc_blsp1_qup6_spi_apps_clk.c, ""),
 	CLK_LOOKUP("core_clk", gcc_blsp1_uart1_apps_clk.c, ""),
 	CLK_LOOKUP("core_clk", gcc_blsp1_uart2_apps_clk.c, "f991e000.serial"),
@@ -5085,6 +5072,9 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("sleep_clk", gcc_usb2b_phy_sleep_clk.c, "msm_ehci_host"),
 	CLK_LOOKUP("pwm_clk", div_clk2.c, "0-0048"),
 
+	CLK_LOOKUP("measure",   measure_clk.c, "fb000000.qcom,wcnss-wlan"),
+	CLK_LOOKUP("wcnss_debug", wcnss_m_clk, "fb000000.qcom,wcnss-wlan"),
+
 	/* Multimedia clocks */
 	CLK_LOOKUP("bus_clk_src", axi_clk_src.c, ""),
 	CLK_LOOKUP("bus_clk", mmss_mmssnoc_axi_clk.c, ""),
@@ -5092,6 +5082,7 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("core_clk", mdss_edpaux_clk.c, "fd923400.qcom,mdss_edp"),
 	CLK_LOOKUP("pixel_clk", mdss_edppixel_clk.c, "fd923400.qcom,mdss_edp"),
 	CLK_LOOKUP("link_clk", mdss_edplink_clk.c, "fd923400.qcom,mdss_edp"),
+	CLK_LOOKUP("mdp_core_clk", mdss_mdp_clk.c, "fd923400.qcom,mdss_edp"),
 	CLK_LOOKUP("byte_clk", mdss_byte0_clk.c, "fd922800.qcom,mdss_dsi"),
 	CLK_LOOKUP("byte_clk", mdss_byte1_clk.c, "fd922e00.qcom,mdss_dsi"),
 	CLK_LOOKUP("core_clk", mdss_esc0_clk.c, "fd922800.qcom,mdss_dsi"),
@@ -5102,6 +5093,8 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("bus_clk", mdss_axi_clk.c, "fd922e00.qcom,mdss_dsi"),
 	CLK_LOOKUP("pixel_clk", mdss_pclk0_clk.c, "fd922800.qcom,mdss_dsi"),
 	CLK_LOOKUP("pixel_clk", mdss_pclk1_clk.c, "fd922e00.qcom,mdss_dsi"),
+	CLK_LOOKUP("mdp_core_clk", mdss_mdp_clk.c, "fd922800.qcom,mdss_dsi"),
+	CLK_LOOKUP("mdp_core_clk", mdss_mdp_clk.c, "fd922e00.qcom,mdss_dsi"),
 	CLK_LOOKUP("iface_clk", mdss_ahb_clk.c, "fd922100.qcom,hdmi_tx"),
 	CLK_LOOKUP("alt_iface_clk", mdss_hdmi_ahb_clk.c,
 		"fd922100.qcom,hdmi_tx"),
@@ -5461,6 +5454,11 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc342000.cti"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc343000.cti"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc344000.cti"),
+	CLK_LOOKUP("core_clk", qdss_clk.c, "fc348000.cti"),
+	CLK_LOOKUP("core_clk", qdss_clk.c, "fc34d000.cti"),
+	CLK_LOOKUP("core_clk", qdss_clk.c, "fc350000.cti"),
+	CLK_LOOKUP("core_clk", qdss_clk.c, "fc354000.cti"),
+	CLK_LOOKUP("core_clk", qdss_clk.c, "fc358000.cti"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fdf30018.hwevent"),
 
 	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc322000.tmc"),
@@ -5491,6 +5489,11 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc342000.cti"),
 	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc343000.cti"),
 	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc344000.cti"),
+	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc348000.cti"),
+	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc34d000.cti"),
+	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc350000.cti"),
+	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc354000.cti"),
+	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fc358000.cti"),
 	CLK_LOOKUP("core_a_clk", qdss_a_clk.c, "fdf30018.hwevent"),
 
 	CLK_LOOKUP("core_mmss_clk", mmss_misc_ahb_clk.c, "fdf30018.hwevent"),
@@ -5794,6 +5797,7 @@ static void __init msm8974_pro_clock_override(void)
 	if (cpu_is_msm8974pro_ac()) {
 		sdcc1_apps_clk_src.c.fmax[VDD_DIG_LOW] = 200000000;
 		sdcc1_apps_clk_src.c.fmax[VDD_DIG_NOMINAL] = 400000000;
+		sdcc1_apps_clk_src.freq_tbl = ftbl_gcc_sdcc1_apps_clk_ac;
 	}
 
 	vfe0_clk_src.c.fmax[VDD_DIG_LOW] = 150000000;
