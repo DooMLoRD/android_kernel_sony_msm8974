@@ -20,11 +20,11 @@
 
 struct mmc_cd_gpio {
 	unsigned int gpio;
-	char label[0];
 	bool status;
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 	int irq_detect;
 #endif
+	char label[0];
 };
 
 int mmc_cd_get_status(struct mmc_host *host)

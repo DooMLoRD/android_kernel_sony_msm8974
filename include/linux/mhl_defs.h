@@ -60,7 +60,7 @@ enum DevCapOffset_e {
 /* bits 4..7 */
 #define	MHL_VER_MAJOR           (0x01 << 4)
 /* bits 0..3 */
-#define	MHL_VER_MINOR		0x03
+#define	MHL_VER_MINOR		0x04
 #define MHL_VERSION		(MHL_VER_MAJOR | MHL_VER_MINOR)
 
 /*Device Category*/

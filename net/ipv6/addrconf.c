@@ -195,6 +195,7 @@ static struct ipv6_devconf ipv6_devconf __read_mostly = {
 	.accept_ra_rt_info_max_plen = 0,
 #endif
 #endif
+	.accept_ra_rt_table	= 0,
 	.proxy_ndp		= 0,
 	.accept_source_route	= 0,	/* we do not accept RH0 by default. */
 	.disable_ipv6		= 0,
@@ -230,6 +231,7 @@ static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
 	.accept_ra_rt_info_max_plen = 0,
 #endif
 #endif
+	.accept_ra_rt_table	= 0,
 	.proxy_ndp		= 0,
 	.accept_source_route	= 0,	/* we do not accept RH0 by default. */
 	.disable_ipv6		= 0,
@@ -598,7 +600,7 @@ static u32 ipv6_addr_hash(const struct in6_addr *addr)
 
 static struct inet6_ifaddr *
 ipv6_add_addr(struct inet6_dev *idev, const struct in6_addr *addr, int pfxlen,
-	      int scope, u32 flags)
+	      int scope, u32 flags,  u32 valid_lft, u32 prefered_lft)
 {
 	struct inet6_ifaddr *ifa = NULL;
 	struct rt6_info *rt;
@@ -656,6 +658,8 @@ ipv6_add_addr(struct inet6_dev *idev, const struct in6_addr *addr, int pfxlen,
 	ifa->scope = scope;
 	ifa->prefix_len = pfxlen;
 	ifa->flags = flags | IFA_F_TENTATIVE;
+	ifa->valid_lft = valid_lft;
+	ifa->prefered_lft = prefered_lft;
 	ifa->cstamp = ifa->tstamp = jiffies;
 
 	ifa->rt = rt;
@@ -914,7 +918,8 @@ retry:
 	      ipv6_count_addresses(idev) < max_addresses ?
 		ipv6_add_addr(idev, &addr, tmp_plen,
 			      ipv6_addr_type(&addr)&IPV6_ADDR_SCOPE_MASK,
-			      addr_flags) : NULL;
+			      addr_flags,
+			      tmp_valid_lft, tmp_prefered_lft) : NULL;
 	if (!ift || IS_ERR(ift)) {
 		in6_ifa_put(ifp);
 		in6_dev_put(idev);
@@ -927,8 +932,6 @@ retry:
 
 	spin_lock_bh(&ift->lock);
 	ift->ifpub = ifp;
-	ift->valid_lft = tmp_valid_lft;
-	ift->prefered_lft = tmp_prefered_lft;
 	ift->cstamp = now;
 	ift->tstamp = tmp_tstamp;
 	spin_unlock_bh(&ift->lock);
@@ -1690,6 +1693,31 @@ static int __ipv6_try_regen_rndid(struct inet6_dev *idev, struct in6_addr *tmpad
 }
 #endif
 
+u32 addrconf_rt_table(const struct net_device *dev, u32 default_table) {
+	/* Determines into what table to put autoconf PIO/RIO/default routes
+	 * learned on this device.
+	 *
+	 * - If 0, use the same table for every device. This puts routes into
+	 *   one of RT_TABLE_{PREFIX,INFO,DFLT} depending on the type of route
+	 *   (but note that these three are currently all equal to
+	 *   RT6_TABLE_MAIN).
+	 * - If > 0, use the specified table.
+	 * - If < 0, put routes into table dev->ifindex + (-rt_table).
+	 */
+	struct inet6_dev *idev = in6_dev_get(dev);
+	u32 table;
+	int sysctl = idev->cnf.accept_ra_rt_table;
+	if (sysctl == 0) {
+		table = default_table;
+	} else if (sysctl > 0) {
+		table = (u32) sysctl;
+	} else {
+		table = (unsigned) dev->ifindex + (-sysctl);
+	}
+	in6_dev_put(idev);
+	return table;
+}
+
 /*
  *	Add prefix route.
  */
@@ -1699,7 +1727,7 @@ addrconf_prefix_route(struct in6_addr *pfx, int plen, struct net_device *dev,
 		      unsigned long expires, u32 flags)
 {
 	struct fib6_config cfg = {
-		.fc_table = RT6_TABLE_PREFIX,
+		.fc_table = addrconf_rt_table(dev, RT6_TABLE_PREFIX),
 		.fc_metric = IP6_RT_PRIO_ADDRCONF,
 		.fc_ifindex = dev->ifindex,
 		.fc_expires = expires,
@@ -1733,7 +1761,8 @@ static struct rt6_info *addrconf_get_prefix_route(const struct in6_addr *pfx,
 	struct rt6_info *rt = NULL;
 	struct fib6_table *table;
 
-	table = fib6_get_table(dev_net(dev), RT6_TABLE_PREFIX);
+	table = fib6_get_table(dev_net(dev),
+			       addrconf_rt_table(dev, RT6_TABLE_PREFIX));
 	if (table == NULL)
 		return NULL;
 
@@ -1964,14 +1993,16 @@ ok:
 			    ipv6_count_addresses(in6_dev) < max_addresses)
 				ifp = ipv6_add_addr(in6_dev, &addr, pinfo->prefix_len,
 						    addr_type&IPV6_ADDR_SCOPE_MASK,
-						    addr_flags);
+						    addr_flags, valid_lft,
+						    prefered_lft);
 
 			if (!ifp || IS_ERR(ifp)) {
 				in6_dev_put(in6_dev);
 				return;
 			}
 
-			update_lft = create = 1;
+			update_lft = 0;
+			create = 1;
 			ifp->cstamp = jiffies;
 			addrconf_dad_start(ifp, RTF_ADDRCONF|RTF_PREFIX_RT);
 		}
@@ -1991,7 +2022,7 @@ ok:
 				stored_lft = ifp->valid_lft - (now - ifp->tstamp) / HZ;
 			else
 				stored_lft = 0;
-			if (!update_lft && stored_lft) {
+			if (!update_lft && !create && stored_lft) {
 				if (valid_lft > MIN_VALID_LIFETIME ||
 				    valid_lft > stored_lft)
 					update_lft = 1;
@@ -2236,15 +2267,10 @@ static int inet6_addr_add(struct net *net, int ifindex, const struct in6_addr *p
 		prefered_lft = timeout;
 	}
 
-	ifp = ipv6_add_addr(idev, pfx, plen, scope, ifa_flags);
+	ifp = ipv6_add_addr(idev, pfx, plen, scope, ifa_flags,
+			    valid_lft, prefered_lft);
 
 	if (!IS_ERR(ifp)) {
-		spin_lock_bh(&ifp->lock);
-		ifp->valid_lft = valid_lft;
-		ifp->prefered_lft = prefered_lft;
-		ifp->tstamp = jiffies;
-		spin_unlock_bh(&ifp->lock);
-
 		addrconf_prefix_route(&ifp->addr, ifp->prefix_len, dev,
 				      expires, flags);
 		/*
@@ -2342,7 +2368,8 @@ static void add_addr(struct inet6_dev *idev, const struct in6_addr *addr,
 {
 	struct inet6_ifaddr *ifp;
 
-	ifp = ipv6_add_addr(idev, addr, plen, scope, IFA_F_PERMANENT);
+	ifp = ipv6_add_addr(idev, addr, plen,
+			    scope, IFA_F_PERMANENT, 0, 0);
 	if (!IS_ERR(ifp)) {
 		spin_lock_bh(&ifp->lock);
 		ifp->flags &= ~IFA_F_TENTATIVE;
@@ -2436,7 +2463,7 @@ static void addrconf_add_linklocal(struct inet6_dev *idev, const struct in6_addr
 #endif
 
 
-	ifp = ipv6_add_addr(idev, addr, 64, IFA_LINK, addr_flags);
+	ifp = ipv6_add_addr(idev, addr, 64, IFA_LINK, addr_flags, 0, 0);
 	if (!IS_ERR(ifp)) {
 		addrconf_prefix_route(&ifp->addr, ifp->prefix_len, idev->dev, 0, 0);
 		addrconf_dad_start(ifp, 0);
@@ -3922,6 +3949,7 @@ static inline void ipv6_store_devconf(struct ipv6_devconf *cnf,
 	array[DEVCONF_ACCEPT_RA_RT_INFO_MAX_PLEN] = cnf->accept_ra_rt_info_max_plen;
 #endif
 #endif
+	array[DEVCONF_ACCEPT_RA_RT_TABLE] = cnf->accept_ra_rt_table;
 	array[DEVCONF_PROXY_NDP] = cnf->proxy_ndp;
 	array[DEVCONF_ACCEPT_SOURCE_ROUTE] = cnf->accept_source_route;
 #ifdef CONFIG_IPV6_OPTIMISTIC_DAD
@@ -4549,6 +4577,13 @@ static struct addrconf_sysctl_table
 		},
 #endif
 #endif
+		{
+			.procname	= "accept_ra_rt_table",
+			.data		= &ipv6_devconf.accept_ra_rt_table,
+			.maxlen		= sizeof(int),
+			.mode		= 0644,
+			.proc_handler	= proc_dointvec,
+		},
 		{
 			.procname	= "proxy_ndp",
 			.data		= &ipv6_devconf.proxy_ndp,
